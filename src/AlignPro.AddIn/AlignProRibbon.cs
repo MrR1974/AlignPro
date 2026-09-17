@@ -243,13 +243,12 @@ namespace AlignPro.AddIn
         {
             Invalidate();
 
-            if (result.Succeeded && result.Message == null) return;
+            if (result.Message != null) Diagnostics.Log("  " + title + ": " + result.Message);
 
-            if (result.Succeeded)
-            {
-                // Worth mentioning but not worth interrupting for.
-                return;
-            }
+            // Silence is right for an operation that just worked. It is wrong when part of the
+            // selection was deliberately skipped or nothing changed - the user is then looking at an
+            // unchanged shape with no idea why, which reads as a broken button.
+            if (!result.Notable || result.Message == null) return;
 
             MessageBox.Show(
                 result.Message, "AlignPro - " + title,

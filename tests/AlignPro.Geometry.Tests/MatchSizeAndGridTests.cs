@@ -278,16 +278,21 @@ public class GridTests
     }
 
     [Fact]
-    public void Grid_ColumnMajorFillsDownFirst()
+    public void Grid_ColumnMajorPutsTheLeftmostShapesInTheLeftColumn()
     {
         var result = Grid(FourSquares(), columns: 2, order: GridFillOrder.ColumnMajor,
             reference: ReferenceTarget.Slide);
 
-        // Reading order is 1, 2, 3, 4. Column-major puts 1 and 2 in the left column.
+        // Column-major bands by horizontal position, so the two leftmost shapes - 1 at x=30 and 3 at
+        // x=40 - form the left column, and each column is then ordered top to bottom. Tidying should
+        // keep shapes near where they already were, not reshuffle them across the slide.
         Assert.Equal(240, result.FrameOf(1).CentreX, Tolerance);
-        Assert.Equal(240, result.FrameOf(2).CentreX, Tolerance);
-        Assert.Equal(720, result.FrameOf(3).CentreX, Tolerance);
+        Assert.Equal(240, result.FrameOf(3).CentreX, Tolerance);
+        Assert.Equal(720, result.FrameOf(2).CentreX, Tolerance);
         Assert.Equal(720, result.FrameOf(4).CentreX, Tolerance);
+
+        Assert.Equal(135, result.FrameOf(1).CentreY, Tolerance);
+        Assert.Equal(405, result.FrameOf(3).CentreY, Tolerance);
     }
 
     [Fact]

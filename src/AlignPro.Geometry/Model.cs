@@ -260,12 +260,25 @@ namespace AlignPro.Geometry
     /// </summary>
     public sealed class SolveResult
     {
-        private SolveResult(IReadOnlyList<GeometryChange> changes, IReadOnlyList<string> diagnostics, bool succeeded)
+        private SolveResult(
+            IReadOnlyList<GeometryChange> changes,
+            IReadOnlyList<string> diagnostics,
+            bool succeeded,
+            bool notable)
         {
             Changes = changes;
             Diagnostics = diagnostics;
             Succeeded = succeeded;
+            Notable = notable;
         }
+
+        /// <summary>
+        /// True when the user needs telling, because part of what they asked for did not happen -
+        /// shapes were skipped, or nothing needed changing. Without this the caller cannot distinguish
+        /// a quiet success from a deliberate refusal to touch something, and a button that declines to
+        /// act while saying nothing just looks broken.
+        /// </summary>
+        public bool Notable { get; }
 
         public IReadOnlyList<GeometryChange> Changes { get; }
 
@@ -287,9 +300,13 @@ namespace AlignPro.Geometry
         }
 
         public static SolveResult Ok(IReadOnlyList<GeometryChange> changes, params string[] diagnostics) =>
-            new SolveResult(changes, diagnostics, true);
+            new SolveResult(changes, diagnostics, true, notable: false);
+
+        /// <summary>Succeeded, but something the user asked for was skipped and they should be told.</summary>
+        public static SolveResult OkWithNotice(IReadOnlyList<GeometryChange> changes, params string[] diagnostics) =>
+            new SolveResult(changes, diagnostics, true, notable: true);
 
         public static SolveResult Refused(string reason) =>
-            new SolveResult(Array.Empty<GeometryChange>(), new[] { reason }, false);
+            new SolveResult(Array.Empty<GeometryChange>(), new[] { reason }, false, notable: true);
     }
 }

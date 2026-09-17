@@ -437,8 +437,8 @@ namespace AlignPro.Geometry
             if (skippedGroups > 0)
             {
                 diagnostics.Add(skippedGroups == 1
-                    ? "Skipped 1 group: resizing it would rescale the spacing inside it."
-                    : $"Skipped {skippedGroups} groups: resizing them would rescale the spacing inside them.");
+                    ? "Skipped 1 group: resizing a group rescales the spacing inside it."
+                    : $"Skipped {skippedGroups} groups: resizing a group rescales the spacing inside it.");
             }
 
             if (changes.Count == 0)
@@ -448,7 +448,11 @@ namespace AlignPro.Geometry
                     : "Nothing to resize.");
             }
 
-            return SolveResult.Ok(changes, diagnostics.ToArray());
+            // A skipped group is the user asking for something we deliberately did not do, so say so
+            // rather than leaving them looking at an unchanged shape wondering if the button works.
+            return skippedGroups > 0
+                ? SolveResult.OkWithNotice(changes, diagnostics.ToArray())
+                : SolveResult.Ok(changes, diagnostics.ToArray());
         }
 
         // -----------------------------------------------------------------------------------------
@@ -480,13 +484,7 @@ namespace AlignPro.Geometry
                 return SolveResult.Refused("The gaps leave no room for cells. Reduce the gap or the column count.");
             }
 
-            // Sort into reading order by current position so a rough arrangement tidies into the grid
-            // nearest to where it already was, rather than being reshuffled arbitrarily.
-            var ordered = shapes
-                .OrderBy(s => bounds[s.Key].CentreY)
-                .ThenBy(s => bounds[s.Key].CentreX)
-                .ThenBy(s => s.Key.ShapeId)
-                .ToList();
+            var ordered = OrderForGrid(request.GridFillOrder, shapes, bounds, rows, columns);
 
             var changes = new List<GeometryChange>(ordered.Count);
 
@@ -522,6 +520,53 @@ namespace AlignPro.Geometry
         // -----------------------------------------------------------------------------------------
         // Helpers
         // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Decides which shape goes in which cell, so that tidying keeps things roughly where they
+        /// already were.
+        /// </summary>
+        /// <remarks>
+        /// Sorting the whole selection by Y and then X does not achieve that, which is a mistake worth
+        /// spelling out: the first three shapes by Y are simply the three highest, so a top row ends up
+        /// ordered by how high each shape happened to sit rather than left to right. A shape that
+        /// started on the right can land on the left, and the result looks arbitrary rather than tidy.
+        ///
+        /// Instead, sort by the across-band axis to decide which band each shape belongs to, then sort
+        /// within each band by the along-band axis. For a row-major grid that means: group into rows by
+        /// vertical position, then order each row left to right.
+        /// </remarks>
+        private static List<ShapeSnapshot> OrderForGrid(
+            GridFillOrder fillOrder,
+            IReadOnlyList<ShapeSnapshot> shapes,
+            IReadOnlyDictionary<ShapeKey, RectD> bounds,
+            int rows,
+            int columns)
+        {
+            var rowMajor = fillOrder == GridFillOrder.RowMajor;
+
+            // Row-major bands are rows, filled across; column-major bands are columns, filled down.
+            var bandSize = rowMajor ? columns : rows;
+            var acrossBands = !rowMajor;   // rows band by Y (horizontal=false), columns band by X
+            var alongBand = rowMajor;      // within a row order by X, within a column order by Y
+
+            var banded = shapes
+                .OrderBy(s => Centre(bounds[s.Key], acrossBands))
+                .ThenBy(s => Centre(bounds[s.Key], alongBand))
+                .ThenBy(s => s.Key.ShapeId)
+                .ToList();
+
+            var ordered = new List<ShapeSnapshot>(banded.Count);
+            for (var start = 0; start < banded.Count; start += bandSize)
+            {
+                var take = Math.Min(bandSize, banded.Count - start);
+                var band = banded.GetRange(start, take)
+                    .OrderBy(s => Centre(bounds[s.Key], alongBand))
+                    .ThenBy(s => s.Key.ShapeId);
+                ordered.AddRange(band);
+            }
+
+            return ordered;
+        }
 
         private static double Extent(RectD rect, bool horizontal) => horizontal ? rect.Width : rect.Height;
 

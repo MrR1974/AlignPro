@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 
@@ -23,6 +23,12 @@ namespace AlignPro.AddIn
         /// <summary>Turn tracing off to stop all file access.</summary>
         public static bool Enabled { get; set; } = true;
 
+        /// <summary>
+        /// Per-shape and per-change detail. Off by default because it is noisy, but it is what
+        /// identified a grid bug by showing exactly what the reader read and the solver produced.
+        /// </summary>
+        public static bool Verbose { get; set; }
+
         public static string LogPath => _path ??= BuildPath();
 
         private static string BuildPath()
@@ -30,6 +36,12 @@ namespace AlignPro.AddIn
             var directory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AlignPro");
             return Path.Combine(directory, "alignpro.log");
+        }
+
+        /// <summary>Detail that is only written when <see cref="Verbose"/> is on.</summary>
+        public static void LogVerbose(string message)
+        {
+            if (Verbose) Log(message);
         }
 
         public static void Log(string message)

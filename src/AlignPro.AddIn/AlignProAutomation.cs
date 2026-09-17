@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using AlignPro.Geometry;
@@ -40,6 +40,16 @@ namespace AlignPro.AddIn
         /// <summary>Where the trace log is written.</summary>
         public string LogPath => Diagnostics.LogPath;
 
+        /// <summary>
+        /// Turns per-shape and per-change tracing on or off. Noisy, but it shows exactly what was read
+        /// from PowerPoint and what the solver decided, which is how the grid ordering bug was found.
+        /// </summary>
+        public string SetVerboseLogging(bool enabled)
+        {
+            Diagnostics.Verbose = enabled;
+            return string.Empty;
+        }
+
         /// <summary>The current settings, for a harness to assert against.</summary>
         public string Describe() => string.Format(
             CultureInfo.InvariantCulture,
@@ -63,8 +73,10 @@ namespace AlignPro.AddIn
                 return "Unknown verb '" + verb + "'.";
             }
 
+            // Returns the message whether the operation was refused or merely skipped something, so a
+            // harness sees the same information the ribbon shows. Empty means a clean, silent success.
             var result = Controller.Run(parsed, verb);
-            return result.Succeeded ? string.Empty : result.Message ?? "Refused.";
+            return result.Message ?? string.Empty;
         }
 
         /// <summary>Sets what to align against. Names match <see cref="ReferenceTarget"/>.</summary>

@@ -9,10 +9,11 @@ namespace AlignPro.AddIn
     /// <summary>The result of a ribbon command, in a form the ribbon can report without knowing why.</summary>
     internal sealed class CommandResult
     {
-        private CommandResult(bool succeeded, string? message)
+        private CommandResult(bool succeeded, string? message, bool notable)
         {
             Succeeded = succeeded;
             Message = message;
+            Notable = notable;
         }
 
         public bool Succeeded { get; }
@@ -20,9 +21,18 @@ namespace AlignPro.AddIn
         /// <summary>Why nothing happened, or what was skipped. Null when there is nothing to say.</summary>
         public string? Message { get; }
 
-        public static CommandResult Ok(string? message = null) => new CommandResult(true, message);
+        /// <summary>
+        /// True when the message must actually reach the user rather than being logged quietly -
+        /// a refusal, or a success that deliberately skipped part of the selection.
+        /// </summary>
+        public bool Notable { get; }
 
-        public static CommandResult Failed(string message) => new CommandResult(false, message);
+        public static CommandResult Ok(string? message = null) => new CommandResult(true, message, false);
+
+        /// <summary>Succeeded, but part of what was asked for did not happen.</summary>
+        public static CommandResult Note(string message) => new CommandResult(true, message, true);
+
+        public static CommandResult Failed(string message) => new CommandResult(false, message, true);
     }
 
     /// <summary>
@@ -81,6 +91,14 @@ namespace AlignPro.AddIn
                 allowGroupResize: false,
                 gridColumns: GridColumns);
 
+            foreach (var snapshot in selection.Shapes)
+            {
+                Diagnostics.LogVerbose(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "  read {0} '{1}' {2} rot={3:F0} group={4}",
+                    snapshot.Key, snapshot.Name ?? "?", snapshot.Frame, snapshot.Rotation, snapshot.IsGroup));
+            }
+
             var solved = AlignSolver.Solve(request, selection.Shapes, selection.Slide);
             if (!solved.Succeeded)
             {
@@ -90,7 +108,14 @@ namespace AlignPro.AddIn
             var transaction = AlignTransaction.FromResult(label, solved);
             if (transaction.IsEmpty)
             {
-                return CommandResult.Ok("Everything was already in place.");
+                return CommandResult.Note("Nothing to change - the selection is already in place.");
+            }
+
+            foreach (var change in transaction.Changes)
+            {
+                Diagnostics.LogVerbose(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "  change {0} {1} -> {2}", change.Key, change.OldFrame, change.NewFrame));
             }
 
             var outcome = ChangeApplier.Apply(_app, selection.SlideId, transaction.Changes);
@@ -111,7 +136,10 @@ namespace AlignPro.AddIn
                 "Ran '{0}': applied={1} missing={2} slideId={3} undoDepth={4}",
                 label, outcome.Applied, outcome.Missing, selection.SlideId, Undo.UndoDepth));
 
-            return CommandResult.Ok(BuildNote(solved, outcome));
+            var note = BuildNote(solved, outcome);
+            return solved.Notable || outcome.Missing > 0
+                ? CommandResult.Note(note ?? "Part of the selection was skipped.")
+                : CommandResult.Ok(note);
         }
 
         /// <summary>
