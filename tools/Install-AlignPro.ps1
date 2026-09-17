@@ -117,12 +117,30 @@ foreach ($file in $required) {
 Write-Host ''
 Write-Host "  installed to                  $InstallPath"
 
+# Windows marks anything that arrived from the internet, and that mark survives both unzipping and
+# copying. The .NET loader refuses to load a marked assembly, PowerPoint gives up and sets
+# LoadBehavior to 2, and the add-in simply never appears - with nothing to show why. Clearing it here
+# is the difference between the download working and silently doing nothing.
+$blocked = 0
+foreach ($file in $required) {
+    $full = Join-Path $InstallPath $file
+    if (Get-Item $full -Stream 'Zone.Identifier' -ErrorAction SilentlyContinue) {
+        Unblock-File -LiteralPath $full
+        $blocked++
+    }
+}
+if ($blocked -gt 0) {
+    Write-Host "  unblocked                     $blocked files marked as downloaded from the internet"
+}
+
 # --- register ------------------------------------------------------------------------------------
 # HKCU, so no administrator rights. LoadBehavior 3 means "load at startup".
 if (-not (Test-Path $registryKey)) { New-Item -Path $registryKey -Force | Out-Null }
 $manifest = 'file:///' + ((Join-Path $InstallPath 'AlignPro.AddIn.vsto') -replace '\\', '/') + '|vstolocal'
 Set-ItemProperty -Path $registryKey -Name 'FriendlyName' -Value 'AlignPro'
 Set-ItemProperty -Path $registryKey -Name 'Description'  -Value 'Align, distribute, size and tidy shapes in PowerPoint'
+# Always force 3. If a previous attempt failed - blocked files being the usual reason - PowerPoint
+# will have set this to 2, meaning "do not try again", and would ignore the add-in forever otherwise.
 Set-ItemProperty -Path $registryKey -Name 'LoadBehavior' -Value 3 -Type DWord
 Set-ItemProperty -Path $registryKey -Name 'Manifest'     -Value $manifest
 

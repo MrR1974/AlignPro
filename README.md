@@ -48,12 +48,19 @@ and must live on a hardware token, and
 [Azure Trusted Signing does not support ClickOnce](https://learn.microsoft.com/en-au/answers/questions/1791756/how-to-sign-clickonce-application-manifest-file-wi)
 at all. The source is here to be read and built by anyone who would rather verify than trust.
 
-Signing matters only at *build* time - VSTO refuses to emit unsigned manifests - and the certificate
-that satisfies it is self-signed and never leaves the machine that built it. Installation does not
-involve a certificate: the manifest is registered with the `|vstolocal` suffix, so the add-in is
-loaded straight from disk rather than installed as a ClickOnce package, and trust comes from the file
-being local. Measured, not assumed: deleting the signing certificate entirely and restarting
-PowerPoint leaves the add-in loading exactly as before.
+**Installation does require trust, and an earlier version of this file said otherwise.** VSTO will not
+load an add-in unless the machine trusts the certificate that signed its manifest; without it
+PowerPoint sets `LoadBehavior` to 2 and the add-in silently never appears. The `|vstolocal` suffix
+controls where the add-in loads *from*, not whether it is trusted.
+
+The mistaken claim came from a test that looked convincing. Deleting the signing certificate and
+watching the add-in still load appeared to prove trust was irrelevant - but trust was coming from VSTO
+inclusion-list entries Visual Studio adds on every build. Clearing those to arrange a clean test
+removed the only thing granting trust, and a genuine download then failed with
+`SecurityException ... VerifyAddInTrust`.
+
+A publicly trusted code-signing certificate is being obtained. Until then there is no downloadable
+release; building from source works, because Visual Studio grants trust to what it builds.
 
 What it needs is already on any machine that runs Office - .NET Framework 4.8 (part of Windows) and
 the VSTO runtime (part of Office). The installer checks both and says plainly if either is missing.
