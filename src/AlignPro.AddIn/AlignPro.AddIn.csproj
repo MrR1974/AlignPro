@@ -32,6 +32,10 @@
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <BootstrapperComponentsLocation>HomeSite</BootstrapperComponentsLocation>
     <ResolveComReferenceSilent>true</ResolveComReferenceSilent>
+    <!-- Switch expressions and nullable annotations. The VSTO template does not set these, and the
+         net48 default is C# 7.3. -->
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
@@ -231,6 +235,16 @@
       <DependentUpon>ThisAddIn.Designer.xml</DependentUpon>
     </Compile>
     <AppDesigner Include="Properties\" />
+  </ItemGroup>
+
+  <!-- AlignPro's own code. Ribbon.xml is embedded and read back by AlignProRibbon.GetCustomUI, so
+       its resource name must stay "<RootNamespace>.Ribbon.xml". -->
+  <ItemGroup>
+    <Compile Include="AlignProController.cs" />
+    <Compile Include="AlignProRibbon.cs" />
+    <Compile Include="ChangeApplier.cs" />
+    <Compile Include="SelectionReader.cs" />
+    <EmbeddedResource Include="Ribbon.xml" />
   </ItemGroup>
 
   <PropertyGroup>

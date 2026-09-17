@@ -18,6 +18,8 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | `src/AlignPro.AddIn/` | The VSTO add-in: ribbon, selection adapter, undo. `net48` *(not built yet)* |
 | [`tests/AlignPro.Geometry.Tests/`](tests/AlignPro.Geometry.Tests/) | xUnit suite on `net8.0` |
 | [`tools/Probe-ShapeGeometry.ps1`](tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
+| [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) | Builds a scratch deck for exercising the ribbon by hand |
+| [`tools/New-DevSigningCertificate.ps1`](tools/New-DevSigningCertificate.ps1) | Creates the machine-local certificate VSTO needs to build |
 | [`docs/object-model-findings.md`](docs/object-model-findings.md) | What the probe measured, and what it means for the design |
 
 ## Two constraints worth knowing up front
@@ -101,7 +103,12 @@ Three design decisions that came out of measurement rather than preference:
 | 0. Object-model spike | **Done** — six probes plus two follow-up undo experiments |
 | 1. Geometry engine + tests | **Done** — 107 tests passing |
 | 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
-| 2. VSTO shell: ribbon, selection adapter, apply pipeline | Blocked on the Visual Studio install |
-| 3. Verbs wired to the ribbon; measure undo coalescing against a real click | Not started |
+| 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
+| 3. Verbs wired to the ribbon | **Done** — all twelve verbs, both dropdowns, our own undo/redo |
+| 3b. Measure undo coalescing against a real ribbon click | Open — see [findings](docs/object-model-findings.md) |
 | 4. Keyboard hook and bindings | Not started |
 | 5. ClickOnce packaging and signing | Not started |
+
+Manual verification: run [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) and follow the steps it
+prints. The headline check is slide 1 — align left with **Measure = Shape frame** (what PowerPoint
+does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).

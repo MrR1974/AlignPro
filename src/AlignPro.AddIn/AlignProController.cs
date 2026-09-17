@@ -1,0 +1,150 @@
+using System;
+using AlignPro.Geometry;
+using PowerPoint = Microsoft.Office.Interop.PowerPoint;
+
+namespace AlignPro.AddIn
+{
+    /// <summary>The result of a ribbon command, in a form the ribbon can report without knowing why.</summary>
+    internal sealed class CommandResult
+    {
+        private CommandResult(bool succeeded, string? message)
+        {
+            Succeeded = succeeded;
+            Message = message;
+        }
+
+        public bool Succeeded { get; }
+
+        /// <summary>Why nothing happened, or what was skipped. Null when there is nothing to say.</summary>
+        public string? Message { get; }
+
+        public static CommandResult Ok(string? message = null) => new CommandResult(true, message);
+
+        public static CommandResult Failed(string message) => new CommandResult(false, message);
+    }
+
+    /// <summary>
+    /// Orchestrates one operation: read the selection, solve, apply, record for undo. Holds the
+    /// settings the ribbon's dropdowns bind to.
+    /// </summary>
+    internal sealed class AlignProController
+    {
+        private readonly PowerPoint.Application _app;
+
+        public AlignProController(PowerPoint.Application app)
+        {
+            _app = app ?? throw new ArgumentNullException(nameof(app));
+        }
+
+        public UndoManager Undo { get; } = new UndoManager();
+
+        public ReferenceTarget Reference { get; set; } = ReferenceTarget.SelectionBounds;
+
+        public BoundsModel Bounds { get; set; } = BoundsModel.ShapeFrame;
+
+        public DistributeMode DistributeMode { get; set; } = DistributeMode.Gap;
+
+        /// <summary>Null means "even out whatever space is already there".</summary>
+        public double? ExactSpacing { get; set; }
+
+        /// <summary>Inset for the slide-margins reference, in points.</summary>
+        public double Margin { get; set; } = 36;
+
+        public ResizeOrigin ResizeOrigin { get; set; } = ResizeOrigin.TopLeft;
+
+        /// <summary>Null means a near-square grid.</summary>
+        public int? GridColumns { get; set; }
+
+        /// <summary>Tracks which slide the undo stack belongs to; keys are only valid within one.</summary>
+        private int _undoSlideId;
+
+        public CommandResult Run(AlignVerb verb, string label)
+        {
+            var selection = SelectionReader.TryRead(_app, Margin, out var problem);
+            if (selection == null) return CommandResult.Failed(problem ?? "Nothing to align.");
+
+            // Match-size and grid are only meaningful against an anchor and a rectangle respectively,
+            // so supply a sensible reference rather than refusing on a technicality.
+            var reference = Reference;
+            if (IsMatchSize(verb)) reference = ReferenceTarget.Anchor;
+
+            var request = new AlignRequest(
+                verb,
+                reference,
+                Bounds,
+                selection.Anchor,
+                ExactSpacing,
+                DistributeMode,
+                ResizeOrigin,
+                allowGroupResize: false,
+                gridColumns: GridColumns);
+
+            var solved = AlignSolver.Solve(request, selection.Shapes, selection.Slide);
+            if (!solved.Succeeded)
+            {
+                return CommandResult.Failed(string.Join(" ", solved.Diagnostics));
+            }
+
+            var transaction = AlignTransaction.FromResult(label, solved);
+            if (transaction.IsEmpty)
+            {
+                return CommandResult.Ok("Everything was already in place.");
+            }
+
+            var outcome = ChangeApplier.Apply(_app, selection.SlideId, transaction.Changes);
+            if (outcome.Applied == 0)
+            {
+                return CommandResult.Failed("None of the selected shapes could be moved.");
+            }
+
+            // Keys only mean anything within one slide, so a slide change invalidates the stack.
+            if (_undoSlideId != selection.SlideId)
+            {
+                Undo.Clear();
+                _undoSlideId = selection.SlideId;
+            }
+            Undo.Push(transaction);
+
+            return CommandResult.Ok(BuildNote(solved, outcome));
+        }
+
+        public CommandResult UndoLast()
+        {
+            if (!Undo.TryUndo(out var inverse)) return CommandResult.Failed("Nothing for AlignPro to undo.");
+
+            var outcome = ChangeApplier.Apply(_app, _undoSlideId, inverse.Changes);
+            return outcome.Applied == 0
+                ? CommandResult.Failed("The shapes from that operation are no longer on the slide.")
+                : CommandResult.Ok(Skipped(outcome));
+        }
+
+        public CommandResult RedoLast()
+        {
+            if (!Undo.TryRedo(out var transaction)) return CommandResult.Failed("Nothing for AlignPro to redo.");
+
+            var outcome = ChangeApplier.Apply(_app, _undoSlideId, transaction.Changes);
+            return outcome.Applied == 0
+                ? CommandResult.Failed("The shapes from that operation are no longer on the slide.")
+                : CommandResult.Ok(Skipped(outcome));
+        }
+
+        private static bool IsMatchSize(AlignVerb verb) =>
+            verb == AlignVerb.MatchWidth || verb == AlignVerb.MatchHeight || verb == AlignVerb.MatchBoth;
+
+        private static string? BuildNote(SolveResult solved, ApplyOutcome outcome)
+        {
+            var diagnostics = solved.Diagnostics.Count > 0 ? string.Join(" ", solved.Diagnostics) : null;
+            var skipped = Skipped(outcome);
+
+            if (diagnostics == null) return skipped;
+            return skipped == null ? diagnostics : diagnostics + " " + skipped;
+        }
+
+        private static string? Skipped(ApplyOutcome outcome) =>
+            outcome.Missing == 0
+                ? null
+                : outcome.Missing == 1
+                    ? "1 shape could not be changed."
+                    : outcome.Missing + " shapes could not be changed.";
+    }
+}

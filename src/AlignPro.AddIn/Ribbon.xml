@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The AlignPro tab. Two dropdowns carry the state that the six align buttons are crossed with -
+  what to align against, and which rectangle to measure - so one small set of buttons covers the
+  whole matrix rather than needing a button per combination.
+-->
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="OnRibbonLoad">
+  <ribbon>
+    <tabs>
+      <tab id="AlignProTab" label="AlignPro">
+
+        <group id="grpTarget" label="Align to">
+          <dropDown id="ddReference"
+                    label="Reference"
+                    sizeString="Selection bounds"
+                    getSelectedItemIndex="GetReferenceIndex"
+                    onAction="OnReferenceChange"
+                    screentip="What the align and distribute verbs measure against"
+                    supertip="Anchor uses the last shape you selected. Selection bounds is what PowerPoint does natively.">
+            <item id="refAnchor" label="Anchor (last selected)" />
+            <item id="refSelection" label="Selection bounds" />
+            <item id="refSlide" label="Slide" />
+            <item id="refMargins" label="Slide margins" />
+            <item id="refPlaceholder" label="Content placeholder" />
+          </dropDown>
+          <dropDown id="ddBounds"
+                    label="Measure"
+                    sizeString="Visual bounds"
+                    getSelectedItemIndex="GetBoundsIndex"
+                    onAction="OnBoundsChange"
+                    screentip="Which rectangle of each shape to align"
+                    supertip="Shape frame is PowerPoint's own rectangle, which ignores rotation. Visual bounds is what you actually see. Text bounds aligns the text rather than the frame.">
+            <item id="bndFrame" label="Shape frame" />
+            <item id="bndVisual" label="Visual bounds" />
+            <item id="bndText" label="Text bounds" />
+          </dropDown>
+          <editBox id="ebMargin"
+                   label="Margin (pt)"
+                   sizeString="0000"
+                   getText="GetMarginText"
+                   onChange="OnMarginChange"
+                   screentip="Inset used by the Slide margins reference" />
+        </group>
+
+        <group id="grpAlign" label="Align">
+          <button id="btnAlignLeft" label="Left" size="large"
+                  imageMso="ObjectsAlignLeft" onAction="OnAlign" />
+          <button id="btnAlignCentreH" label="Centre" size="large"
+                  imageMso="ObjectsAlignCenterHorizontal" onAction="OnAlign" />
+          <button id="btnAlignRight" label="Right" size="large"
+                  imageMso="ObjectsAlignRight" onAction="OnAlign" />
+          <button id="btnAlignTop" label="Top" size="large"
+                  imageMso="ObjectsAlignTop" onAction="OnAlign" />
+          <button id="btnAlignCentreV" label="Middle" size="large"
+                  imageMso="ObjectsAlignMiddleVertical" onAction="OnAlign" />
+          <button id="btnAlignBottom" label="Bottom" size="large"
+                  imageMso="ObjectsAlignBottom" onAction="OnAlign" />
+        </group>
+
+        <group id="grpDistribute" label="Distribute">
+          <dropDown id="ddDistributeMode"
+                    label="Space by"
+                    sizeString="Trailing edges"
+                    getSelectedItemIndex="GetDistributeModeIndex"
+                    onAction="OnDistributeModeChange"
+                    screentip="Which feature of each shape gets spaced evenly"
+                    supertip="All four agree when the shapes are the same size, and diverge as soon as they differ.">
+            <item id="dmLeading" label="Leading edges" />
+            <item id="dmCentre" label="Centres" />
+            <item id="dmTrailing" label="Trailing edges" />
+            <item id="dmGap" label="Space between" />
+          </dropDown>
+          <editBox id="ebSpacing"
+                   label="Exact (pt)"
+                   sizeString="0000"
+                   getText="GetSpacingText"
+                   onChange="OnSpacingChange"
+                   screentip="Exact spacing in points; leave blank to even out what is already there"
+                   supertip="In the three edge and centre modes this is the pitch. In Space between it is the gap." />
+          <button id="btnDistributeH" label="Horizontally" size="large"
+                  imageMso="ObjectsAlignDistributeHorizontally" onAction="OnDistribute" />
+          <button id="btnDistributeV" label="Vertically" size="large"
+                  imageMso="ObjectsAlignDistributeVertically" onAction="OnDistribute" />
+        </group>
+
+        <group id="grpSize" label="Match size">
+          <button id="btnMatchWidth" label="Width" onAction="OnMatchSize"
+                  screentip="Match every shape's width to the anchor" />
+          <button id="btnMatchHeight" label="Height" onAction="OnMatchSize"
+                  screentip="Match every shape's height to the anchor" />
+          <button id="btnMatchBoth" label="Both" onAction="OnMatchSize"
+                  screentip="Match width and height to the anchor" />
+          <toggleButton id="tbResizeFromCentre" label="From centre"
+                       getPressed="GetResizeFromCentre" onAction="OnResizeFromCentreChange"
+                       screentip="Hold each shape's centre while resizing instead of its top-left corner" />
+        </group>
+
+        <group id="grpArrange" label="Arrange">
+          <editBox id="ebGridColumns" label="Columns" sizeString="0000"
+                   getText="GetGridColumnsText" onChange="OnGridColumnsChange"
+                   screentip="Leave blank for a near-square grid" />
+          <button id="btnGrid" label="Grid" onAction="OnGrid"
+                  screentip="Arrange the selection into an even grid, leaving sizes alone" />
+        </group>
+
+        <group id="grpUndo" label="AlignPro">
+          <button id="btnUndo" getLabel="GetUndoLabel" size="large" imageMso="Undo"
+                  getEnabled="GetUndoEnabled" onAction="OnUndo"
+                  supertip="Reverses the last AlignPro operation. Separate from PowerPoint's own undo." />
+          <button id="btnRedo" getLabel="GetRedoLabel" size="large" imageMso="Redo"
+                  getEnabled="GetRedoEnabled" onAction="OnRedo" />
+        </group>
+
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>
