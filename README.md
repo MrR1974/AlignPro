@@ -26,6 +26,7 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/Install-AlignPro.ps1`](tools/Install-AlignPro.ps1) | What an end user runs; ships inside the release zip |
 | [`tools/Uninstall-AlignPro.ps1`](tools/Uninstall-AlignPro.ps1) | Reverses it, and nothing else |
 | [`tools/New-Release.ps1`](tools/New-Release.ps1) | Tests, builds Release, packages the zip |
+| [`tools/Test-RibbonClicks.ps1`](tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
 | [`docs/object-model-findings.md`](docs/object-model-findings.md) | What the probe measured, and what it means for the design |
 
 ## Installing
@@ -95,6 +96,29 @@ gitignored. Skip it and the build fails with *"Cannot build because the ClickOnc
 option is not selected"*. The certificate is self-signed and trusted only on the machine that made it
 — shipping to colleagues needs a real code-signing certificate, which is a separate step.
 
+## Testing
+
+Three layers, because each catches what the others cannot.
+
+```powershell
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 136, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 7, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 8, real ribbon clicks
+```
+
+The third exists because the second is blind to a whole class of bug. It drives the add-in over
+cross-process COM, where no Office command is in flight - which is **not** the context a ribbon
+callback runs in. PowerPoint defers some operations while a command is executing, and a shipped bug
+where Align Left silently did nothing when clicked passed all seven of those checks.
+
+`Test-RibbonClicks.ps1` uses COM only for setup and assertions and clicks the actual ribbon button
+through UI Automation, so Office dispatches the command exactly as it would for a person. Reintroducing
+that bug deliberately confirms the split is real: the COM harness still reports 7 of 7 passing, while
+the click harness reports *"Clicking Align Left moves shapes: FAIL - 0 of 4 shapes moved"*.
+
+It deliberately avoids operations that raise a message box, since a modal dialog blocks PowerPoint's
+UI thread; those paths stay covered through the automation surface.
+
 ## Cutting a release
 
 ```powershell
@@ -162,7 +186,7 @@ Three design decisions that came out of measurement rather than preference:
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
-| 3c. Automated end-to-end tests | **Partly** — geometry is covered; the harness cannot reproduce a ribbon-callback context, which is how a real bug got through |
+| 3c. Automated end-to-end tests | **Done** — 136 unit tests, 7 COM checks, and 8 real ribbon clicks |
 | 4. Keyboard hook and bindings | Not started |
 | 5. Distribution | **Done** - unsigned local install, tested end to end. A signed channel is deferred until there is demand |
 
