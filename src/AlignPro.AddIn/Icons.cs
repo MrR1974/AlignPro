@@ -55,6 +55,7 @@ namespace AlignPro.AddIn
                     "btnMatchWidth" => MatchWidth(16),
                     "btnMatchHeight" => MatchHeight(16),
                     "btnMatchBoth" => MatchBoth(16),
+                    "tbResizeFromCentre" => ResizeFromCentre(16),
                     "btnGrid" => Grid(16),
                     _ => null
                 };
@@ -77,6 +78,18 @@ namespace AlignPro.AddIn
 
         private static void Fill(Graphics g, Brush brush, int unit, int x, int y, int w, int h) =>
             g.FillRectangle(brush, x * unit, y * unit, w * unit, h * unit);
+
+        /// <summary>
+        /// A one-unit border, drawn as four filled rectangles. A <see cref="Pen"/> would straddle the
+        /// path and land on half pixels, which is exactly the softness these icons avoid.
+        /// </summary>
+        private static void Outline(Graphics g, Brush brush, int unit, int x, int y, int w, int h)
+        {
+            Fill(g, brush, unit, x, y, w, 1);
+            Fill(g, brush, unit, x, y + h - 1, w, 1);
+            Fill(g, brush, unit, x, y, 1, h);
+            Fill(g, brush, unit, x + w - 1, y, 1, h);
+        }
 
         /// <summary>
         /// Three bars at an even pitch, with the two equal gaps marked along the far edge. The gaps are
@@ -149,6 +162,29 @@ namespace AlignPro.AddIn
             {
                 Fill(g, accent, u, 1, 1, 6, 6);
                 Fill(g, ink, u, 9, 9, 6, 6);
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>
+        /// A small shape and the larger one it becomes, sharing a centre - the toggle's whole meaning
+        /// is that the centre holds while the edges move outward equally.
+        /// </summary>
+        /// <remarks>
+        /// Concentric rectangles rather than outward arrows: at 16px an arrowhead is three or four
+        /// pixels and reads as noise, whereas two boxes on a common centre stay legible.
+        /// </remarks>
+        private static Bitmap ResizeFromCentre(int size)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            {
+                // Both are centred on unit 8: the outer spans 1-15, the inner 5-11.
+                Outline(g, ink, u, 1, 1, 14, 14);
+                Fill(g, accent, u, 5, 5, 6, 6);
             }
 
             return bitmap;

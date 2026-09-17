@@ -95,7 +95,7 @@
                   screentip="Match every shape's height to the anchor" />
           <button id="btnMatchBoth" label="Both" getImage="GetButtonImage" onAction="OnMatchSize"
                   screentip="Match width and height to the anchor" />
-          <toggleButton id="tbResizeFromCentre" label="From centre"
+          <toggleButton id="tbResizeFromCentre" label="From centre" getImage="GetButtonImage"
                        getPressed="GetResizeFromCentre" onAction="OnResizeFromCentreChange"
                        screentip="Hold each shape's centre while resizing instead of its top-left corner" />
         </group>
