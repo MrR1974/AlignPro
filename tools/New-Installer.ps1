@@ -6,9 +6,11 @@
     Packages an already-built Release into a per-user MSI: no administrator rights to install, an
     entry in Add/Remove Programs, and deployable to managed machines through Intune or Group Policy.
 
-    An MSI also sidesteps a problem the script installer had to work around by hand. Files written by
-    Windows Installer do not inherit the "downloaded from the internet" mark, so there is nothing to
-    unblock - the mark stays on the MSI itself and never reaches the assemblies.
+    This is the managed-deployment path, not the one a person downloads. An unsigned MSI is warned
+    about by SmartScreen on every release - reputation for an unsigned file starts at zero for each
+    new build, and a self-signed certificate counts as no signature - so the download route is the zip
+    from New-Package.ps1, which install.ps1 fetches without the browser ever being involved. Intune and
+    Group Policy install without any of that applying, which is why the MSI is still worth building.
 
     The public key that grants trust is extracted here, from the signed manifest in the build output,
     and written to installer/PublicKey.wxi. Generating it rather than committing it means the trust

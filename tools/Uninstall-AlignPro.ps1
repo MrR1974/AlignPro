@@ -3,11 +3,14 @@
     Removes AlignPro from PowerPoint for the current user.
 
 .DESCRIPTION
-    Undoes exactly what Install-AlignPro.ps1 did: deletes the registry key PowerPoint loads the add-in
-    from, and removes the installed files. Nothing else on the machine was touched, so nothing else
-    needs cleaning up.
+    Undoes exactly what Install-AlignPro.ps1 did: the registry key PowerPoint loads the add-in from,
+    the trust entry, the Add/Remove Programs listing, and the installed files. Nothing else on the
+    machine was touched, so nothing else needs cleaning up.
 
     Your presentations are never touched.
+
+    A copy of this script is installed alongside the add-in, and Settings > Apps > Installed apps >
+    AlignPro > Uninstall runs that copy.
 
 .PARAMETER InstallPath
     Where the files were installed. Defaults to the location the installer uses, but the registry is
@@ -19,6 +22,10 @@
 .PARAMETER KeepLog
     Leave the diagnostic log behind. Useful when removing AlignPro to report a problem with it.
 
+.PARAMETER FromArp
+    Set when Windows launched this from Add/Remove Programs. Holds the window open at the end so the
+    result is readable, rather than letting the console close the instant the script finishes.
+
 .EXAMPLE
     .\Uninstall-AlignPro.ps1
 #>
@@ -26,13 +33,24 @@
 param(
     [string] $InstallPath,
     [switch] $KeepFiles,
-    [switch] $KeepLog
+    [switch] $KeepLog,
+    [switch] $FromArp
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $registryKey = 'HKCU:\Software\Microsoft\Office\PowerPoint\Addins\AlignPro.AddIn'
+$uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AlignPro'
+
+function Finish {
+    param([int] $Code = 0)
+    if ($FromArp) {
+        Write-Host 'Press any key to close this window.' -ForegroundColor DarkGray
+        [void]$Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+    }
+    exit $Code
+}
 
 Write-Host ''
 Write-Host 'Removing AlignPro' -ForegroundColor Cyan
@@ -52,7 +70,7 @@ if (-not $InstallPath) { $InstallPath = Join-Path $env:LOCALAPPDATA 'AlignPro' }
 if (Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue) {
     Write-Host 'PowerPoint is running. Close it and run this again, so the files are not locked.' -ForegroundColor Red
     Write-Host ''
-    exit 1
+    Finish 1
 }
 
 if (Test-Path $registryKey) {
@@ -76,6 +94,11 @@ Get-ChildItem $inclusionRoot -ErrorAction SilentlyContinue | ForEach-Object {
 }
 Write-Host $(if ($revoked -gt 0) { "  revoked trust ($revoked inclusion-list entries)" } else { '  no trust entries to revoke' })
 
+if (Test-Path $uninstallKey) {
+    Remove-Item -Path $uninstallKey -Recurse -Force
+    Write-Host '  delisted from Add/Remove Programs'
+}
+
 if ($KeepFiles) {
     Write-Host "  files left in place at $InstallPath" -ForegroundColor DarkGray
 }
@@ -88,20 +111,34 @@ elseif (Test-Path $InstallPath) {
         'AlignPro.AddIn.vsto'
         'AlignPro.Geometry.dll'
         'Microsoft.Office.Tools.Common.v4.0.Utilities.dll'
+        'AlignPro-Sample.pptx'
     )
 
     # The add-in writes its diagnostic log into this same folder, so without counting it as ours the
     # folder would always survive an uninstall - looking like the uninstaller had failed.
     if (-not $KeepLog) { $ours += 'alignpro.log' }
+
+    # This script lives in that folder too and is deleted last, because it is the one currently
+    # running. PowerShell does not hold it open, so this normally succeeds; if the filesystem
+    # disagrees, the folder simply survives with one file in it and the message below says so.
+    $ours += 'Uninstall-AlignPro.ps1'
+
+    $stubborn = @()
     foreach ($file in $ours) {
         $full = Join-Path $InstallPath $file
-        if (Test-Path $full) { Remove-Item -LiteralPath $full -Force }
+        if (Test-Path $full) {
+            try { Remove-Item -LiteralPath $full -Force }
+            catch { $stubborn += $file }
+        }
     }
 
     $remaining = @(Get-ChildItem -LiteralPath $InstallPath -Force -ErrorAction SilentlyContinue)
     if ($remaining.Count -eq 0) {
         [System.IO.Directory]::Delete($InstallPath, $false)
         Write-Host "  removed $InstallPath"
+    }
+    elseif ($stubborn.Count -gt 0 -and $remaining.Count -eq $stubborn.Count) {
+        Write-Host "  removed AlignPro's files; $InstallPath holds only this script, which Windows will tidy"
     }
     else {
         Write-Host "  removed AlignPro's files; left $InstallPath because it holds other things"
@@ -114,3 +151,4 @@ else {
 Write-Host ''
 Write-Host 'Done. AlignPro will not load next time PowerPoint starts.' -ForegroundColor Green
 Write-Host ''
+Finish 0

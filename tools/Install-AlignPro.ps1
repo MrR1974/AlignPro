@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Copies the add-in files to a stable location and registers them with PowerPoint. That is the whole
-    installation: some files and one registry value under HKEY_CURRENT_USER.
+    installation: some files and a handful of registry values under HKEY_CURRENT_USER.
 
     No administrator rights, no Visual Studio and no compiler are needed.
 
@@ -26,6 +26,9 @@
     Windows, and the VSTO runtime ships with Office. The script checks both and says so plainly if
     either is missing.
 
+    Normally reached through install.ps1, which downloads the release and calls this. Running it by
+    hand from an extracted release zip does exactly the same thing.
+
     Safe to re-run: installing over an existing copy upgrades it.
 
 .PARAMETER InstallPath
@@ -34,6 +37,9 @@
 .PARAMETER Source
     Folder holding the add-in files. Defaults to the folder this script is in, which is where they sit
     when you extract the release zip.
+
+.PARAMETER Version
+    Version being installed, recorded in Add/Remove Programs. Optional.
 
 .PARAMETER Force
     Install even if PowerPoint is running. The copy will fail if PowerPoint has the files open, so this
@@ -49,6 +55,7 @@
 param(
     [string] $InstallPath = (Join-Path $env:LOCALAPPDATA 'AlignPro'),
     [string] $Source = $PSScriptRoot,
+    [string] $Version,
     [switch] $Force
 )
 
@@ -57,6 +64,7 @@ $ErrorActionPreference = 'Stop'
 
 $addInName = 'AlignPro.AddIn'
 $registryKey = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\$addInName"
+$uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AlignPro'
 
 # The complete set. Anything missing means an incomplete download rather than a broken machine.
 $required = @(
@@ -65,6 +73,13 @@ $required = @(
     'AlignPro.AddIn.vsto'
     'AlignPro.Geometry.dll'
     'Microsoft.Office.Tools.Common.v4.0.Utilities.dll'
+)
+
+# Carried along when the package has them, which the release zip always does. Absent when installing
+# straight out of a build folder, which is a developer's case and not worth failing over.
+$extras = @(
+    'Uninstall-AlignPro.ps1'
+    'AlignPro-Sample.pptx'
 )
 
 function Fail {
@@ -122,18 +137,31 @@ if ((Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue) -and -not $Forc
 
 # --- copy ----------------------------------------------------------------------------------------
 if (-not (Test-Path $InstallPath)) { New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null }
+
+$installed = @()
 foreach ($file in $required) {
     Copy-Item (Join-Path $Source $file) (Join-Path $InstallPath $file) -Force
+    $installed += $file
+}
+foreach ($file in $extras) {
+    $from = Join-Path $Source $file
+    if (Test-Path $from) {
+        Copy-Item $from (Join-Path $InstallPath $file) -Force
+        $installed += $file
+    }
 }
 Write-Host ''
 Write-Host "  installed to                  $InstallPath"
 
 # Windows marks anything that arrived from the internet, and that mark survives both unzipping and
 # copying. The .NET loader refuses to load a marked assembly, PowerPoint gives up and sets
-# LoadBehavior to 2, and the add-in simply never appears - with nothing to show why. Clearing it here
-# is the difference between the download working and silently doing nothing.
+# LoadBehavior to 2, and the add-in simply never appears - with nothing to show why.
+#
+# Nothing should be marked when the package came through install.ps1: Invoke-WebRequest writes no
+# Zone.Identifier and Expand-Archive does not propagate one. Explorer's own extractor does, so this
+# stays as the safety net for the hand-unzip route.
 $blocked = 0
-foreach ($file in $required) {
+foreach ($file in $installed) {
     $full = Join-Path $InstallPath $file
     if (Get-Item $full -Stream 'Zone.Identifier' -ErrorAction SilentlyContinue) {
         Unblock-File -LiteralPath $full
@@ -189,9 +217,41 @@ catch {
     Fail "Could not grant trust: $($_.Exception.Message)" `
          'Without it PowerPoint loads nothing and gives no reason. The files are installed; re-run this script to retry.'
 }
+
+# --- Add/Remove Programs -------------------------------------------------------------------------
+# So removal is "Settings > Apps > Uninstall" like anything else, rather than a script the user has to
+# still have lying around. Only worth writing when the uninstaller travelled with the package, since
+# the entry is a promise that it is there.
+$uninstaller = Join-Path $InstallPath 'Uninstall-AlignPro.ps1'
+if (Test-Path $uninstaller) {
+    if (-not (Test-Path $uninstallKey)) { New-Item -Path $uninstallKey -Force | Out-Null }
+    $bytes = (Get-ChildItem -LiteralPath $InstallPath -File | Measure-Object -Property Length -Sum).Sum
+
+    Set-ItemProperty -Path $uninstallKey -Name 'DisplayName'     -Value 'AlignPro'
+    Set-ItemProperty -Path $uninstallKey -Name 'Publisher'       -Value 'AlignPro'
+    Set-ItemProperty -Path $uninstallKey -Name 'InstallLocation' -Value $InstallPath
+    Set-ItemProperty -Path $uninstallKey -Name 'DisplayIcon'     -Value (Join-Path $InstallPath 'AlignPro.AddIn.dll')
+    Set-ItemProperty -Path $uninstallKey -Name 'URLInfoAbout'    -Value 'https://github.com/MrR1974/AlignPro'
+    Set-ItemProperty -Path $uninstallKey -Name 'EstimatedSize'   -Value ([int]($bytes / 1KB)) -Type DWord
+    Set-ItemProperty -Path $uninstallKey -Name 'NoModify'        -Value 1 -Type DWord
+    Set-ItemProperty -Path $uninstallKey -Name 'NoRepair'        -Value 1 -Type DWord
+    if ($Version) { Set-ItemProperty -Path $uninstallKey -Name 'DisplayVersion' -Value $Version }
+
+    # -FromArp tells the uninstaller it was launched by Windows rather than by a person at a prompt,
+    # so it holds the window open instead of vanishing with its output.
+    $command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -FromArp' -f $uninstaller
+    Set-ItemProperty -Path $uninstallKey -Name 'UninstallString' -Value $command
+
+    Write-Host "  listed in                     Settings > Apps > Installed apps"
+}
+
 Write-Host ''
 Write-Host 'Done. Start PowerPoint and look for the AlignPro tab.' -ForegroundColor Green
 Write-Host ''
+if (Test-Path (Join-Path $InstallPath 'AlignPro-Sample.pptx')) {
+    Write-Host 'A sample deck is installed alongside it, one slide per capability:' -ForegroundColor DarkGray
+    Write-Host "  $(Join-Path $InstallPath 'AlignPro-Sample.pptx')" -ForegroundColor DarkGray
+    Write-Host ''
+}
 Write-Host 'If the tab does not appear, check File > Options > Add-ins > Disabled Items.' -ForegroundColor DarkGray
-Write-Host 'To remove it again, run Uninstall-AlignPro.ps1.' -ForegroundColor DarkGray
 Write-Host ''
