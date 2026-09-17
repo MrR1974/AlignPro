@@ -187,7 +187,7 @@ Three design decisions that came out of measurement rather than preference:
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
 | 3c. Automated end-to-end tests | **Done** — 136 unit tests, 7 COM checks, and 8 real ribbon clicks |
-| 4. Keyboard hook and bindings | Not started |
+| 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - unsigned local install, tested end to end. A signed channel is deferred until there is demand |
 
 ### Known limitations
