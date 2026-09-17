@@ -65,6 +65,7 @@ $ErrorActionPreference = 'Stop'
 $addInName = 'AlignPro.AddIn'
 $registryKey = "HKCU:\Software\Microsoft\Office\PowerPoint\Addins\$addInName"
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AlignPro'
+$script:vstoWarning = $false
 
 # The complete set. Anything missing means an incomplete download rather than a broken machine.
 $required = @(
@@ -103,32 +104,87 @@ if ($missing) {
 }
 
 # --- prerequisites -------------------------------------------------------------------------------
+# Every check below reads HKLM in BOTH registry views explicitly, rather than through an HKLM: path.
+# A path is interpreted relative to the bitness of whatever PowerShell the user happened to launch:
+# 64-bit PowerShell sees the native view, 32-bit PowerShell is redirected into WOW6432Node and cannot
+# see the native one at all. Since Office, the VSTO runtime and Windows do not agree on which view
+# they register in, a path-based check passes or fails depending on which shell was opened - which is
+# exactly the kind of false negative that blocked a working machine and sent someone to a dead link.
+function Test-RegistryKey {
+    param([string] $SubKey, [string] $ValueName)
+    foreach ($view in @('Registry64', 'Registry32')) {
+        try {
+            $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+            try {
+                $key = $base.OpenSubKey($SubKey)
+                if ($key) {
+                    try {
+                        $value = if ($ValueName) { $key.GetValue($ValueName) } else { $null }
+                        return [pscustomobject]@{ Found = $true; Value = $value; View = $view }
+                    }
+                    finally { $key.Dispose() }
+                }
+            }
+            finally { $base.Dispose() }
+        }
+        catch {
+            # Registry64 does not exist on 32-bit Windows; try the other view rather than giving up.
+        }
+    }
+    return [pscustomobject]@{ Found = $false; Value = $null; View = $null }
+}
+
+# PowerPoint first, because it is the thing AlignPro attaches to. Checking the VSTO runtime before it
+# meant a machine with no PowerPoint at all was told the runtime was missing - true, but not the
+# reason, and not something installing the runtime would fix.
+$powerPoint = Test-RegistryKey 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\POWERPNT.EXE'
+if (-not $powerPoint.Found) {
+    Fail 'PowerPoint does not appear to be installed.' `
+         'AlignPro is a PowerPoint add-in and has nothing to attach to. It needs PowerPoint for Windows on the desktop; Microsoft 365 for the web cannot load add-ins of this kind.'
+}
+Write-Host "  PowerPoint                    present"
+
 # .NET Framework 4.8 is release 528040 or higher, and ships with Windows 10 1903 onwards.
-$ndp = 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full'
-$release = if (Test-Path $ndp) { (Get-ItemProperty $ndp).Release } else { 0 }
+$ndp = Test-RegistryKey 'SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' 'Release'
+$release = if ($ndp.Found -and $ndp.Value) { [int] $ndp.Value } else { 0 }
 if ($release -lt 528040) {
     Fail 'The .NET Framework 4.8 is required and was not found.' `
          'Install it from https://dotnet.microsoft.com/download/dotnet-framework/net48 and run this again.'
 }
 Write-Host "  .NET Framework 4.8            present"
 
-# The VSTO runtime registers itself in the 32-bit view of the registry even on 64-bit Windows, so both
-# have to be checked - looking only at the native view reports it missing on most machines.
-$vstoKeys = @(
-    'HKLM:\SOFTWARE\Microsoft\VSTO Runtime Setup\v4R'
-    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\VSTO Runtime Setup\v4R'
-)
-$vsto = $vstoKeys | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $vsto) {
-    Fail 'The Visual Studio Tools for Office runtime is required and was not found.' `
-         "It normally ships with Office. Install it from https://www.microsoft.com/download/details.aspx?id=48217 and run this again."
+# The VSTO runtime ships with Office, and registers under v4R, or only v4, or only in the 32-bit view,
+# depending on the machine - so look for all of it, plus the installer on disk, before concluding
+# anything. Measured on one Click-to-Run machine: nothing at all in the native view, v4 and v4R both
+# present in WOW6432Node, and VSTOInstaller.exe under both Program Files trees.
+$vstoVersion = $null
+foreach ($key in @('SOFTWARE\Microsoft\VSTO Runtime Setup\v4R', 'SOFTWARE\Microsoft\VSTO Runtime Setup\v4')) {
+    $probe = Test-RegistryKey $key 'Version'
+    if ($probe.Found) {
+        $vstoVersion = if ($probe.Value) { $probe.Value } else { 'present' }
+        break
+    }
 }
-Write-Host "  VSTO runtime                  $((Get-ItemProperty $vsto).Version)"
+if (-not $vstoVersion) {
+    foreach ($base in @($env:CommonProgramFiles, ${env:CommonProgramFiles(x86)})) {
+        if ($base -and (Test-Path (Join-Path $base 'Microsoft Shared\VSTO\10.0\VSTOInstaller.exe'))) {
+            $vstoVersion = 'present (found on disk, not in the registry)'
+            break
+        }
+    }
+}
 
-if (-not (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\POWERPNT.EXE')) {
-    Fail 'PowerPoint does not appear to be installed.' 'AlignPro is a PowerPoint add-in and has nothing to attach to.'
+if ($vstoVersion) {
+    Write-Host "  VSTO runtime                  $vstoVersion"
 }
-Write-Host "  PowerPoint                    present"
+else {
+    # A warning, not a failure. Office installs this runtime, so on a machine that has PowerPoint its
+    # apparent absence is more often a detection gap than a real one - and refusing to install strands
+    # someone whose machine is fine. Installing anyway costs a few files and some HKCU values, and if
+    # the runtime really is missing the add-in simply does not appear, which the note below covers.
+    $script:vstoWarning = $true
+    Write-Host "  VSTO runtime                  NOT DETECTED - continuing anyway" -ForegroundColor Yellow
+}
 
 # --- PowerPoint must not be holding the files ----------------------------------------------------
 if ((Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue) -and -not $Force) {
@@ -255,3 +311,11 @@ if (Test-Path (Join-Path $InstallPath 'AlignPro-Sample.pptx')) {
 }
 Write-Host 'If the tab does not appear, check File > Options > Add-ins > Disabled Items.' -ForegroundColor DarkGray
 Write-Host ''
+if ($script:vstoWarning) {
+    Write-Host 'One thing was not confirmed: the Visual Studio Tools for Office runtime.' -ForegroundColor Yellow
+    Write-Host 'It ships with Office and is almost certainly present - this check has been wrong before -' -ForegroundColor DarkGray
+    Write-Host 'so the install went ahead. If the AlignPro tab does not appear, that is the thing to fix:' -ForegroundColor DarkGray
+    Write-Host '  https://aka.ms/VSTORuntimeDownload' -ForegroundColor DarkGray
+    Write-Host 'Then run the installer again. Nothing needs uninstalling first.' -ForegroundColor DarkGray
+    Write-Host ''
+}

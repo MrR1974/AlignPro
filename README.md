@@ -104,6 +104,12 @@ Already present on any machine that runs Office:
 - Windows with PowerPoint (desktop; not Microsoft 365 for the web)
 - .NET Framework 4.8, which ships with Windows 10 1903 and later
 - The VSTO runtime, which ships with Office
+
+The installer checks all three. If it cannot find the VSTO runtime it says so and installs anyway
+rather than refusing: the runtime registers itself differently on different machines, and a check
+that is sometimes wrong should not be allowed to block a machine that is fine. If the AlignPro tab
+then does not appear, [install the runtime](https://aka.ms/VSTORuntimeDownload) and run the
+installer again.
 ---
 
 ## Using it

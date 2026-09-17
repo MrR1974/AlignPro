@@ -77,6 +77,42 @@ script *files* are governed by the execution policy, script blocks are not.
 The MSI is kept for Intune and Group Policy, where an installer package is what the tooling expects and
 no browser is involved. It is not what a person downloads.
 
+## Detecting the prerequisites
+
+All three prerequisite checks read HKLM through
+`[Microsoft.Win32.RegistryKey]::OpenBaseKey(..., 'Registry64' | 'Registry32')` rather than through an
+`HKLM:` path, and that is not fussiness. A path is resolved relative to the bitness of whichever
+PowerShell the user launched: 64-bit PowerShell sees the native view, 32-bit PowerShell is silently
+redirected into `WOW6432Node` and cannot see the native view at all. Office, the VSTO runtime and
+Windows do not agree on which view they register in, so a path-based check passes or fails depending
+on which shell someone happened to open.
+
+Measured on one 64-bit Click-to-Run machine:
+
+| Key under `SOFTWARE` | Native (64-bit) | `WOW6432Node` (32-bit) |
+|---|---|---|
+| `Microsoft\Windows\CurrentVersion\App Paths\POWERPNT.EXE` | present | present |
+| `Microsoft\NET Framework Setup\NDP\v4\Full` | present | present |
+| `Microsoft\VSTO Runtime Setup\v4R` | **absent** | present, 10.0.60910 |
+| `Microsoft\VSTO Runtime Setup\v4` | **absent** | present, 10.0.60910 |
+
+The runtime check is also the loosest of the three: it accepts `v4R` or `v4` in either view, and falls
+back to looking for `VSTOInstaller.exe` under either Program Files tree.
+
+**And when it still finds nothing, it warns and installs anyway.** A user reported the old check
+refusing to install on a machine that had Office — and pointing at a Microsoft download URL that had
+since started returning 404. Weigh the two failure modes: a false negative blocks someone whose
+machine is fine and leaves them nowhere to go, while a false positive installs some files and a few
+HKCU values onto a machine where the tab then does not appear, which the closing note tells them how
+to fix. The second is plainly the better one to be wrong in.
+
+PowerPoint is checked first for the same reason. It used to be checked last, so a machine with no
+PowerPoint at all was told the VSTO runtime was missing — true, but not the reason, and not something
+installing the runtime would fix.
+
+The runtime download link is `https://aka.ms/VSTORuntimeDownload`, a redirector, deliberately: the
+numeric Download Center ID it replaced stopped resolving.
+
 ClickOnce deployment from a URL was considered and rejected. The ClickOnce trust prompt is governed by
 `HKLM\SOFTWARE\MICROSOFT\.NETFramework\Security\TrustManager\PromptingLevel`, whose default for the
 `Internet` zone is `AuthenticodeRequired` — a trust prompt is only offered for a certificate that

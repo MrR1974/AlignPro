@@ -111,7 +111,12 @@ REMOVING IT
 REQUIREMENTS
 
   Windows with PowerPoint (desktop), .NET Framework 4.8, and the VSTO runtime. The last two are
-  already present on any machine that runs Office. The installer checks and says so if not.
+  already present on any machine that runs Office.
+
+  The installer checks all three. PowerPoint and the .NET Framework are checked strictly; the VSTO
+  runtime is only warned about, because it registers itself differently from machine to machine and
+  the check has produced false negatives. If it cannot be found the install goes ahead anyway, and
+  says what to do should the AlignPro tab not appear.
 
 SOURCE AND LICENCE
 
