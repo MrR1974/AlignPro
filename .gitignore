@@ -32,3 +32,6 @@ sample/
 
 # Release zips (rebuild with tools/New-Release.ps1)
 dist/
+
+# Generated at build time from the signed manifest - belongs to one build, never committed
+installer/PublicKey.wxi

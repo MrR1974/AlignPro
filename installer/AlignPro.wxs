@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AlignPro's installer.
+
+  Per-user by design: everything lands under the user's local application data and HKEY_CURRENT_USER,
+  so installing needs no administrator rights. That also suits an Office add-in, which is a per-user
+  thing anyway.
+
+  Two details are worth knowing before editing this.
+
+  The registry values below use plain Windows paths rather than file:/// URLs. That is deliberate and
+  was measured: VSTO accepts a plain path for both the add-in registration and the inclusion list, so
+  [INSTALLFOLDER] can be written straight into them. Rewriting a path into a URL with forward slashes
+  would have needed a custom action, and custom actions that write to HKCU have to impersonate the
+  user - a lot of fragility to avoid.
+
+  The public key in the trust entry comes from PublicKey.wxi, generated at build time by
+  tools/New-Release.ps1 from the signed manifest itself. Keeping it generated means it can never drift
+  from the build it is meant to trust.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <?include PublicKey.wxi ?>
+
+  <Package
+      Name="AlignPro"
+      Manufacturer="AlignPro"
+      Version="$(var.Version)"
+      UpgradeCode="7E1C6A4D-3F92-4C18-9B5E-0A2D8F6C1B47"
+      Scope="perUser"
+      Compressed="yes">
+
+    <SummaryInformation Description="Align, distribute, size and tidy shapes in PowerPoint" />
+
+    <!-- Installing a newer version replaces the old one rather than sitting alongside it. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of AlignPro is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!--
+      No custom check for PowerPoint running. Windows Installer detects the locked files itself and
+      shows its standard "files in use" dialog naming PowerPoint, which is better than anything worth
+      hand-rolling: it offers to close the application rather than simply refusing to proceed.
+    -->
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/MrR1974/AlignPro" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="AlignPro" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="AlignPro" Level="1">
+      <ComponentGroupRef Id="AddInFiles" />
+      <ComponentGroupRef Id="Registration" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AddInFiles" Directory="INSTALLFOLDER">
+      <Component>
+        <File Source="$(var.BinDir)\AlignPro.AddIn.dll" />
+      </Component>
+      <Component>
+        <File Source="$(var.BinDir)\AlignPro.AddIn.dll.manifest" />
+      </Component>
+      <Component>
+        <File Source="$(var.BinDir)\AlignPro.AddIn.vsto" />
+      </Component>
+      <Component>
+        <File Source="$(var.BinDir)\AlignPro.Geometry.dll" />
+      </Component>
+      <Component>
+        <File Source="$(var.BinDir)\Microsoft.Office.Tools.Common.v4.0.Utilities.dll" />
+      </Component>
+      <Component>
+        <File Id="SampleDeck" Source="$(var.SampleDeck)" Name="AlignPro-Sample.pptx" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="Registration" Directory="INSTALLFOLDER">
+
+      <!-- Tells PowerPoint the add-in exists. LoadBehavior 3 means "load at startup". -->
+      <Component Id="PowerPointRegistration" Guid="B4A9E27C-5D31-4E86-A0F2-6C8B3D147E95">
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\PowerPoint\Addins\AlignPro.AddIn" ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="FriendlyName" Type="string" Value="AlignPro" />
+          <RegistryValue Name="Description" Type="string" Value="Align, distribute, size and tidy shapes in PowerPoint" />
+          <RegistryValue Name="LoadBehavior" Type="integer" Value="3" />
+          <!-- |vstolocal loads the add-in from this folder rather than a ClickOnce cache. -->
+          <RegistryValue Name="Manifest" Type="string" Value="[INSTALLFOLDER]AlignPro.AddIn.vsto|vstolocal" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+
+      <!--
+        Grants trust, which VSTO requires: it will not load an add-in whose signing certificate the
+        machine does not know, and AlignPro's is self-signed. Rather than add that certificate to a
+        trust store - which would trust everything it ever signs - this trusts exactly this add-in, at
+        this path, signed by this key. ForceDeleteOnUninstall takes the grant away again, so it does
+        not outlive the software it was for.
+      -->
+      <Component Id="TrustEntry" Guid="C7D2F849-1A63-4B95-8E07-2F5A9C6D3B18">
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\VSTO\Security\Inclusion\{A3E58D71-9C24-4F60-B8D5-7E1096C24AB3}" ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="Url" Type="string" Value="[INSTALLFOLDER]AlignPro.AddIn.vsto" KeyPath="yes" />
+          <RegistryValue Name="PublicKey" Type="string" Value="$(var.AlignProPublicKey)" />
+        </RegistryKey>
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>
