@@ -63,6 +63,19 @@ else {
     Write-Host '  was not registered' -ForegroundColor DarkGray
 }
 
+# Revoke the trust the installer granted. Leaving it behind would outlive the add-in it was for -
+# a standing grant for something no longer on the machine.
+$inclusionRoot = 'HKCU:\Software\Microsoft\VSTO\Security\Inclusion'
+$revoked = 0
+Get-ChildItem $inclusionRoot -ErrorAction SilentlyContinue | ForEach-Object {
+    $url = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).Url
+    if ($url -and $url -like '*AlignPro.AddIn.vsto') {
+        Remove-Item -Path $_.PSPath -Recurse -Force
+        $revoked++
+    }
+}
+Write-Host $(if ($revoked -gt 0) { "  revoked trust ($revoked inclusion-list entries)" } else { '  no trust entries to revoke' })
+
 if ($KeepFiles) {
     Write-Host "  files left in place at $InstallPath" -ForegroundColor DarkGray
 }

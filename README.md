@@ -48,19 +48,17 @@ and must live on a hardware token, and
 [Azure Trusted Signing does not support ClickOnce](https://learn.microsoft.com/en-au/answers/questions/1791756/how-to-sign-clickonce-application-manifest-file-wi)
 at all. The source is here to be read and built by anyone who would rather verify than trust.
 
-**Installation does require trust, and an earlier version of this file said otherwise.** VSTO will not
-load an add-in unless the machine trusts the certificate that signed its manifest; without it
-PowerPoint sets `LoadBehavior` to 2 and the add-in silently never appears. The `|vstolocal` suffix
-controls where the add-in loads *from*, not whether it is trusted.
+**Installation requires trust, and the installer grants it - narrowly.** VSTO will not load an add-in
+unless the machine trusts the certificate that signed its manifest; without it PowerPoint sets
+`LoadBehavior` to 2 and the add-in silently never appears. The `|vstolocal` suffix controls where the
+add-in loads *from*, not whether it is trusted - an earlier version of this file claimed otherwise, on
+the strength of a test contaminated by inclusion-list entries Visual Studio had been adding on every
+build.
 
-The mistaken claim came from a test that looked convincing. Deleting the signing certificate and
-watching the add-in still load appeared to prove trust was irrelevant - but trust was coming from VSTO
-inclusion-list entries Visual Studio adds on every build. Clearing those to arrange a clean test
-removed the only thing granting trust, and a genuine download then failed with
-`SecurityException ... VerifyAddInTrust`.
-
-A publicly trusted code-signing certificate is being obtained. Until then there is no downloadable
-release; building from source works, because Visual Studio grants trust to what it builds.
+The installer writes one VSTO inclusion-list entry: AlignPro's manifest path plus the public key that
+signed it, read out of the manifest itself so it cannot drift. No certificate store is touched, and the
+uninstaller revokes it. That grants strictly less than importing the certificate would, and costs
+nothing - a public code-signing certificate runs to about $1000 a year.
 
 What it needs is already on any machine that runs Office - .NET Framework 4.8 (part of Windows) and
 the VSTO runtime (part of Office). The installer checks both and says plainly if either is missing.

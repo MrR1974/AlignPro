@@ -8,11 +8,19 @@
 
     No administrator rights, no Visual Studio and no compiler are needed.
 
-    Trust IS needed, however. VSTO will not load an add-in unless the machine trusts the certificate
-    that signed its manifest; without it PowerPoint sets LoadBehavior to 2 and the add-in silently
-    never appears. The "|vstolocal" suffix used below controls where the add-in is loaded FROM - it
-    does not exempt it from that check. This script does not grant trust, and cannot: that comes from
-    the signing certificate being one the machine already trusts.
+    Trust IS needed, and this script grants it - deliberately, and as narrowly as possible.
+
+    VSTO will not load an add-in unless it trusts the certificate that signed its manifest; without
+    that, PowerPoint sets LoadBehavior to 2 and the add-in silently never appears. AlignPro is signed
+    by a self-signed certificate that no other machine has heard of.
+
+    Rather than ask you to add that certificate to your trust stores - which would trust anything it
+    ever signs - this adds one entry to VSTO's inclusion list: trust for THIS add-in, at THIS path,
+    signed by THIS key, and nothing else. No certificate store is touched, and the uninstaller removes
+    the entry again.
+
+    It is still a trust decision, just a precise one. If you would rather not make it, build from
+    source instead: Visual Studio grants trust to what it builds.
 
     Everything it needs is already present on a machine that runs Office: the .NET Framework ships with
     Windows, and the VSTO runtime ships with Office. The script checks both and says so plainly if
@@ -139,7 +147,9 @@ if ($blocked -gt 0) {
 # --- register ------------------------------------------------------------------------------------
 # HKCU, so no administrator rights. LoadBehavior 3 means "load at startup".
 if (-not (Test-Path $registryKey)) { New-Item -Path $registryKey -Force | Out-Null }
-$manifest = 'file:///' + ((Join-Path $InstallPath 'AlignPro.AddIn.vsto') -replace '\\', '/') + '|vstolocal'
+$manifestUrl = 'file:///' + ((Join-Path $InstallPath 'AlignPro.AddIn.vsto') -replace '\\', '/')
+# PowerPoint's registration wants the |vstolocal suffix; the inclusion list wants the bare URL.
+$manifest = $manifestUrl + '|vstolocal'
 Set-ItemProperty -Path $registryKey -Name 'FriendlyName' -Value 'AlignPro'
 Set-ItemProperty -Path $registryKey -Name 'Description'  -Value 'Align, distribute, size and tidy shapes in PowerPoint'
 # Always force 3. If a previous attempt failed - blocked files being the usual reason - PowerPoint
@@ -148,6 +158,37 @@ Set-ItemProperty -Path $registryKey -Name 'LoadBehavior' -Value 3 -Type DWord
 Set-ItemProperty -Path $registryKey -Name 'Manifest'     -Value $manifest
 
 Write-Host "  registered for                $env:USERNAME (no admin rights used)"
+
+# --- grant trust ---------------------------------------------------------------------------------
+# The public key is read out of the manifest being installed rather than shipped beside it, so the
+# entry can never drift from the build it is meant to trust.
+$inclusionRoot = 'HKCU:\Software\Microsoft\VSTO\Security\Inclusion'
+try {
+    [xml] $manifestXml = Get-Content (Join-Path $InstallPath 'AlignPro.AddIn.vsto') -Raw
+    $ns = New-Object System.Xml.XmlNamespaceManager($manifestXml.NameTable)
+    $ns.AddNamespace('ds', 'http://www.w3.org/2000/09/xmldsig#')
+    $rsa = $manifestXml.SelectSingleNode('//ds:Signature/ds:KeyInfo/ds:KeyValue/ds:RSAKeyValue', $ns)
+    if (-not $rsa) { throw 'the manifest carries no signature public key' }
+
+    $publicKey = '<RSAKeyValue><Modulus>' + $rsa.Modulus + '</Modulus><Exponent>' + $rsa.Exponent + '</Exponent></RSAKeyValue>'
+    if (-not (Test-Path $inclusionRoot)) { New-Item -Path $inclusionRoot -Force | Out-Null }
+
+    # Drop any entry for this same manifest first, so reinstalling does not accumulate duplicates.
+    Get-ChildItem $inclusionRoot -ErrorAction SilentlyContinue | ForEach-Object {
+        if ((Get-ItemProperty $_.PSPath).Url -eq $manifestUrl) { Remove-Item -Path $_.PSPath -Recurse -Force }
+    }
+
+    $entry = Join-Path $inclusionRoot ([Guid]::NewGuid().ToString('B'))
+    New-Item -Path $entry -Force | Out-Null
+    Set-ItemProperty -Path $entry -Name 'Url' -Value $manifestUrl
+    Set-ItemProperty -Path $entry -Name 'PublicKey' -Value $publicKey
+
+    Write-Host "  trusted                       this add-in only (no certificate store touched)"
+}
+catch {
+    Fail "Could not grant trust: $($_.Exception.Message)" `
+         'Without it PowerPoint loads nothing and gives no reason. The files are installed; re-run this script to retry.'
+}
 Write-Host ''
 Write-Host 'Done. Start PowerPoint and look for the AlignPro tab.' -ForegroundColor Green
 Write-Host ''
