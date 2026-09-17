@@ -6,10 +6,13 @@
     Copies the add-in files to a stable location and registers them with PowerPoint. That is the whole
     installation: some files and one registry value under HKEY_CURRENT_USER.
 
-    No administrator rights, no Visual Studio, no compiler and no certificate are needed. The manifest
-    path is registered with the "|vstolocal" suffix, which tells the VSTO runtime to load the add-in
-    directly from disk rather than performing a ClickOnce install - so trust comes from the file being
-    on your own machine, not from a signed publisher.
+    No administrator rights, no Visual Studio and no compiler are needed.
+
+    Trust IS needed, however. VSTO will not load an add-in unless the machine trusts the certificate
+    that signed its manifest; without it PowerPoint sets LoadBehavior to 2 and the add-in silently
+    never appears. The "|vstolocal" suffix used below controls where the add-in is loaded FROM - it
+    does not exempt it from that check. This script does not grant trust, and cannot: that comes from
+    the signing certificate being one the machine already trusts.
 
     Everything it needs is already present on a machine that runs Office: the .NET Framework ships with
     Windows, and the VSTO runtime ships with Office. The script checks both and says so plainly if
