@@ -49,17 +49,17 @@
 
         <group id="grpAlign" label="Align">
           <button id="btnAlignLeft" label="Left" size="large"
-                  imageMso="ObjectsAlignLeft" onAction="OnAlign" />
+                  getImage="GetButtonImage" onAction="OnAlign" />
           <button id="btnAlignCentreH" label="Centre" size="large"
-                  imageMso="ObjectsAlignCenterHorizontal" onAction="OnAlign" />
+                  getImage="GetButtonImage" onAction="OnAlign" />
           <button id="btnAlignRight" label="Right" size="large"
-                  imageMso="ObjectsAlignRight" onAction="OnAlign" />
+                  getImage="GetButtonImage" onAction="OnAlign" />
           <button id="btnAlignTop" label="Top" size="large"
-                  imageMso="ObjectsAlignTop" onAction="OnAlign" />
+                  getImage="GetButtonImage" onAction="OnAlign" />
           <button id="btnAlignCentreV" label="Middle" size="large"
-                  imageMso="ObjectsAlignMiddleVertical" onAction="OnAlign" />
+                  getImage="GetButtonImage" onAction="OnAlign" />
           <button id="btnAlignBottom" label="Bottom" size="large"
-                  imageMso="ObjectsAlignBottom" onAction="OnAlign" />
+                  getImage="GetButtonImage" onAction="OnAlign" />
         </group>
 
         <group id="grpDistribute" label="Distribute">

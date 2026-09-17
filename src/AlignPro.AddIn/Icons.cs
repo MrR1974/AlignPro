@@ -50,6 +50,12 @@ namespace AlignPro.AddIn
                 // strokes crisp instead of scaling a single image and going soft.
                 var bitmap = controlId switch
                 {
+                    "btnAlignLeft" => Align(32, Edge.Left),
+                    "btnAlignCentreH" => Align(32, Edge.CentreH),
+                    "btnAlignRight" => Align(32, Edge.Right),
+                    "btnAlignTop" => Align(32, Edge.Top),
+                    "btnAlignCentreV" => Align(32, Edge.CentreV),
+                    "btnAlignBottom" => Align(32, Edge.Bottom),
                     "btnDistributeH" => Distribute(32, horizontal: true),
                     "btnDistributeV" => Distribute(32, horizontal: false),
                     "btnMatchWidth" => MatchWidth(16),
@@ -89,6 +95,74 @@ namespace AlignPro.AddIn
             Fill(g, brush, unit, x, y + h - 1, w, 1);
             Fill(g, brush, unit, x, y, 1, h);
             Fill(g, brush, unit, x + w - 1, y, 1, h);
+        }
+
+        private enum Edge { Left, CentreH, Right, Top, CentreV, Bottom }
+
+        /// <summary>
+        /// Three bars of differing lengths brought onto one line, with that line drawn in the accent
+        /// colour. The bars are the shapes; the rule is what they are being aligned to.
+        /// </summary>
+        /// <remarks>
+        /// The centring variants share a subtlety: the rule occupies one whole unit, so its centre
+        /// falls on a half unit. The bars are given odd-numbered offsets that put their own centres on
+        /// the same half unit, which keeps everything symmetrical without landing on half pixels.
+        /// </remarks>
+        private static Bitmap Align(int size, Edge edge)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            {
+                switch (edge)
+                {
+                    case Edge.Left:
+                        Fill(g, accent, u, 2, 2, 1, 12);
+                        Fill(g, ink, u, 4, 3, 10, 3);
+                        Fill(g, ink, u, 4, 7, 6, 3);
+                        Fill(g, ink, u, 4, 11, 9, 3);
+                        break;
+
+                    case Edge.Right:
+                        Fill(g, accent, u, 13, 2, 1, 12);
+                        Fill(g, ink, u, 3, 3, 9, 3);
+                        Fill(g, ink, u, 7, 7, 5, 3);
+                        Fill(g, ink, u, 4, 11, 8, 3);
+                        break;
+
+                    case Edge.CentreH:
+                        // Rule spans 8-9, so its centre is 8.5; every bar is centred on 8.5 too.
+                        Fill(g, accent, u, 8, 2, 1, 12);
+                        Fill(g, ink, u, 3, 3, 11, 3);
+                        Fill(g, ink, u, 6, 7, 5, 3);
+                        Fill(g, ink, u, 4, 11, 9, 3);
+                        break;
+
+                    case Edge.Top:
+                        Fill(g, accent, u, 2, 2, 12, 1);
+                        Fill(g, ink, u, 3, 4, 3, 10);
+                        Fill(g, ink, u, 7, 4, 3, 6);
+                        Fill(g, ink, u, 11, 4, 3, 9);
+                        break;
+
+                    case Edge.Bottom:
+                        Fill(g, accent, u, 2, 13, 12, 1);
+                        Fill(g, ink, u, 3, 3, 3, 9);
+                        Fill(g, ink, u, 7, 7, 3, 5);
+                        Fill(g, ink, u, 11, 4, 3, 8);
+                        break;
+
+                    case Edge.CentreV:
+                        Fill(g, accent, u, 2, 8, 12, 1);
+                        Fill(g, ink, u, 3, 3, 3, 11);
+                        Fill(g, ink, u, 7, 6, 3, 5);
+                        Fill(g, ink, u, 11, 4, 3, 9);
+                        break;
+                }
+            }
+
+            return bitmap;
         }
 
         /// <summary>
