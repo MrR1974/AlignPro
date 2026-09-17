@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -123,6 +123,7 @@ namespace AlignPro.Geometry
         /// </summary>
         private static RectD? ResolveReference(
             AlignRequest request,
+            ReferenceTarget target,
             IReadOnlyList<ShapeSnapshot> shapes,
             SlideMetrics slide,
             IReadOnlyDictionary<ShapeKey, RectD> bounds,
@@ -130,7 +131,7 @@ namespace AlignPro.Geometry
         {
             refusal = null;
 
-            switch (request.Reference)
+            switch (target)
             {
                 case ReferenceTarget.Slide:
                     return slide.Bounds;
@@ -202,7 +203,7 @@ namespace AlignPro.Geometry
                 return SolveResult.Refused("Select at least two shapes, or align to the slide instead.");
             }
 
-            var reference = ResolveReference(request, shapes, slide, bounds, out var refusal);
+            var reference = ResolveReference(request, request.Reference, shapes, slide, bounds, out var refusal);
             if (!reference.HasValue) return SolveResult.Refused(refusal!);
             var refRect = reference.Value;
 
@@ -304,7 +305,7 @@ namespace AlignPro.Geometry
             double spanStart, spanEnd;
             if (spanFromReference)
             {
-                var reference = ResolveReference(request, shapes, slide, bounds, out var refusal);
+                var reference = ResolveReference(request, request.Reference, shapes, slide, bounds, out var refusal);
                 if (!reference.HasValue) return SolveResult.Refused(refusal!);
                 spanStart = horizontal ? reference.Value.Left : reference.Value.Top;
                 spanEnd = horizontal ? reference.Value.Right : reference.Value.Bottom;
@@ -400,12 +401,9 @@ namespace AlignPro.Geometry
             var anchor = FindAnchor(request, shapes, out var refusal);
             if (anchor is null) return SolveResult.Refused(refusal!);
 
-            if (anchor.IsGroup && !request.AllowGroupResize)
-            {
-                return SolveResult.Refused(
-                    "The anchor is a group, and matching its size would rescale the spacing inside it.");
-            }
-
+            // A group anchor is fine. Only its size is read - it is never itself resized - so the
+            // objection to resizing groups does not apply to it. Group *targets* are still skipped
+            // below, which is where the rescaling would actually happen.
             var matchWidth = request.Verb == AlignVerb.MatchWidth || request.Verb == AlignVerb.MatchBoth;
             var matchHeight = request.Verb == AlignVerb.MatchHeight || request.Verb == AlignVerb.MatchBoth;
 
@@ -468,7 +466,20 @@ namespace AlignPro.Geometry
         {
             if (shapes.Count < 2) return SolveResult.Refused("Select at least two shapes to arrange in a grid.");
 
-            var reference = ResolveReference(request, shapes, slide, bounds, out var refusal);
+            var notable = false;
+
+            // An anchor is a single shape, not an area. Laying a grid inside one shape's own bounds
+            // packs the whole selection into that shape's footprint - which looks exactly like the
+            // shapes collapsing into a corner, and is almost never what was meant.
+            var target = request.Reference;
+            if (target == ReferenceTarget.Anchor)
+            {
+                diagnostics.Add("An anchor is a single shape rather than an area, so the selection's own extent was used.");
+                notable = true;
+                target = ReferenceTarget.SelectionBounds;
+            }
+
+            var reference = ResolveReference(request, target, shapes, slide, bounds, out var refusal);
             if (!reference.HasValue) return SolveResult.Refused(refusal!);
             var refRect = reference.Value;
 
@@ -482,6 +493,16 @@ namespace AlignPro.Geometry
             if (cellWidth <= 0 || cellHeight <= 0)
             {
                 return SolveResult.Refused("The gaps leave no room for cells. Reduce the gap or the column count.");
+            }
+
+            // Grid only repositions, so shapes bigger than their cells end up overlapping. Say so
+            // rather than leaving the user looking at a pile.
+            var widest = shapes.Max(s => bounds[s.Key].Width);
+            var tallest = shapes.Max(s => bounds[s.Key].Height);
+            if (widest > cellWidth + RectD.Epsilon || tallest > cellHeight + RectD.Epsilon)
+            {
+                diagnostics.Add("The shapes are bigger than the cells, so they overlap. Try a different reference or fewer columns.");
+                notable = true;
             }
 
             var ordered = OrderForGrid(request.GridFillOrder, shapes, bounds, rows, columns);
@@ -514,7 +535,9 @@ namespace AlignPro.Geometry
             }
 
             diagnostics.Add(string.Format(CultureInfo.CurrentCulture, "Arranged into {0} x {1}.", rows, columns));
-            return SolveResult.Ok(changes, diagnostics.ToArray());
+            return notable
+                ? SolveResult.OkWithNotice(changes, diagnostics.ToArray())
+                : SolveResult.Ok(changes, diagnostics.ToArray());
         }
 
         // -----------------------------------------------------------------------------------------

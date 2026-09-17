@@ -134,15 +134,19 @@ public class MatchSizeTests
     }
 
     [Fact]
-    public void MatchSize_RefusesWhenTheAnchorIsAGroup()
+    public void MatchSize_AllowsAGroupAsTheAnchor()
     {
+        // This once refused, which was a mistake: the anchor is only measured, never resized, so
+        // "resizing a group rescales its internal spacing" is no objection to anchoring on one.
+        // The rule belongs to group *targets*, which are still skipped.
         var result = Match(AlignVerb.MatchBoth, new[]
         {
             Make.Shape(1, 0, 0, 200, 100, isGroup: true),
             Make.Shape(2, 300, 300, 50, 40)
         });
 
-        Assert.False(result.Succeeded);
+        Assert.True(result.Succeeded);
+        Assert.Equal(200, result.FrameOf(2).Width, Tolerance);
     }
 
     [Fact]
