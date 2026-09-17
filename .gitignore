@@ -29,3 +29,6 @@ Signing.props
 # Generated sample deck (binary; rebuild with tools/New-SampleDeck.ps1)
 sample/
 *.pptx
+
+# Release zips (rebuild with tools/New-Release.ps1)
+dist/

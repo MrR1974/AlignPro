@@ -23,7 +23,39 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/Test-AlignProEndToEnd.ps1`](tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Probe-UndoGrouping.ps1`](tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
 | [`tools/New-DevSigningCertificate.ps1`](tools/New-DevSigningCertificate.ps1) | Creates the machine-local certificate VSTO needs to build |
+| [`tools/Install-AlignPro.ps1`](tools/Install-AlignPro.ps1) | What an end user runs; ships inside the release zip |
+| [`tools/Uninstall-AlignPro.ps1`](tools/Uninstall-AlignPro.ps1) | Reverses it, and nothing else |
+| [`tools/New-Release.ps1`](tools/New-Release.ps1) | Tests, builds Release, packages the zip |
 | [`docs/object-model-findings.md`](docs/object-model-findings.md) | What the probe measured, and what it means for the design |
+
+## Installing
+
+Download the latest zip from Releases, extract it, close PowerPoint and run:
+
+```powershell
+.\Install-AlignPro.ps1
+```
+
+No administrator rights, no Visual Studio, no compiler and no certificate. The script copies five
+files to `%LOCALAPPDATA%\AlignPro` and writes one registry value under `HKEY_CURRENT_USER`; that is
+the entire installation. `Uninstall-AlignPro.ps1` reverses exactly that and nothing else.
+
+**AlignPro is not signed by a certificate authority**, so Windows cannot tell you who published it.
+That is a deliberate trade-off: publicly trusted code-signing certificates
+[can no longer be issued as an exportable `.pfx`](https://knowledge.digicert.com/alerts/code-signing-changes-in-2023)
+and must live on a hardware token, and
+[Azure Trusted Signing does not support ClickOnce](https://learn.microsoft.com/en-au/answers/questions/1791756/how-to-sign-clickonce-application-manifest-file-wi)
+at all. The source is here to be read and built by anyone who would rather verify than trust.
+
+Signing matters only at *build* time - VSTO refuses to emit unsigned manifests - and the certificate
+that satisfies it is self-signed and never leaves the machine that built it. Installation does not
+involve a certificate: the manifest is registered with the `|vstolocal` suffix, so the add-in is
+loaded straight from disk rather than installed as a ClickOnce package, and trust comes from the file
+being local. Measured, not assumed: deleting the signing certificate entirely and restarting
+PowerPoint leaves the add-in loading exactly as before.
+
+What it needs is already on any machine that runs Office - .NET Framework 4.8 (part of Windows) and
+the VSTO runtime (part of Office). The installer checks both and says plainly if either is missing.
 
 ## Two constraints worth knowing up front
 
@@ -62,6 +94,20 @@ That writes `AlignPro.AddIn_TemporaryKey.pfx` and `Signing.props` into the add-i
 gitignored. Skip it and the build fails with *"Cannot build because the ClickOnce manifest signing
 option is not selected"*. The certificate is self-signed and trusted only on the machine that made it
 — shipping to colleagues needs a real code-signing certificate, which is a separate step.
+
+## Cutting a release
+
+```powershell
+.\tools\New-Release.ps1 -Version 1.0.0
+```
+
+Runs the geometry tests, builds Release, and writes `dist\AlignPro-<version>.zip` - the five add-in
+files, both scripts and a readme, about 62KB. It deliberately publishes nothing; attaching the zip to
+a GitHub release stays a separate, deliberate act.
+
+There is no CI build for the add-in, and that is not an oversight: a VSTO project needs Visual Studio
+with the Office/SharePoint workload, which stock hosted runners do not have. The geometry engine and
+its tests build on the dotnet CLI alone and could be run in CI happily.
 
 ## How the solver is shaped
 
@@ -118,7 +164,7 @@ Three design decisions that came out of measurement rather than preference:
 | 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
 | 3c. Automated end-to-end tests | **Partly** — geometry is covered; the harness cannot reproduce a ribbon-callback context, which is how a real bug got through |
 | 4. Keyboard hook and bindings | Not started |
-| 5. ClickOnce packaging and signing | Not started |
+| 5. Distribution | **Done** - unsigned local install, tested end to end. A signed channel is deferred until there is demand |
 
 ### Known limitations
 
