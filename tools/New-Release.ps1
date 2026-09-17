@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     Produces the zip an end user downloads: the five add-in files, the install and uninstall scripts,
-    and a short readme. Nothing in it needs a compiler, Visual Studio or a certificate to use.
+    the sample deck and a short readme. Nothing in it needs a compiler, Visual Studio or a certificate
+    to use.
 
     The build itself does need Visual Studio's MSBuild and a signing certificate, because VSTO refuses
     to produce manifests unsigned. That certificate is a build-time formality only - it is self-signed,
@@ -86,6 +87,14 @@ foreach ($file in $payload) { Copy-Item (Join-Path $binaries $file) $staging -Fo
 Copy-Item (Join-Path $PSScriptRoot 'Install-AlignPro.ps1') $staging -Force
 Copy-Item (Join-Path $PSScriptRoot 'Uninstall-AlignPro.ps1') $staging -Force
 
+# The sample deck ships in the zip so it is to hand the moment someone installs, rather than being a
+# separate trip back to the repository. Fail rather than quietly shipping without it.
+$deck = Join-Path $projectRoot 'sample\AlignPro-Sample.pptx'
+if (-not (Test-Path $deck)) {
+    throw "The sample deck is missing from '$deck'. Run tools\New-SampleDeck.ps1 first."
+}
+Copy-Item $deck $staging -Force
+
 @"
 AlignPro $Version
 =================
@@ -132,6 +141,15 @@ Installation does not involve a certificate at all: the add-in is loaded from
 your own disk rather than installed as a ClickOnce package.
 
 
+Try it
+------
+
+AlignPro-Sample.pptx is included here: ten slides, one per capability, each
+captioned with what to try and what should happen. Slide 2 is the one to start
+with - align left with Measure = Shape frame, undo, then again with Visual
+bounds, and watch the rotated shape.
+
+
 One thing worth knowing
 -----------------------
 
@@ -150,7 +168,7 @@ Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -Compressi
 $size = (Get-Item $zip).Length
 Write-Host ''
 Write-Host "Packaged: $zip" -ForegroundColor Green
-Write-Host ("  {0:N0} KB, {1} files" -f ($size / 1KB), ($payload.Count + 3))
+Write-Host ("  {0:N0} KB, {1} files" -f ($size / 1KB), ($payload.Count + 4))
 Write-Host ''
 Write-Host 'Next: create a GitHub release and attach that zip.' -ForegroundColor Cyan
 Write-Host '  With the gh CLI:' -ForegroundColor DarkGray
