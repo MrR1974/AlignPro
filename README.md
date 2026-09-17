@@ -18,7 +18,8 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`src/AlignPro.AddIn/`](src/AlignPro.AddIn/) | The VSTO add-in: ribbon, selection adapter, apply pipeline, undo boundary, automation surface. `net48` |
 | [`tests/AlignPro.Geometry.Tests/`](tests/AlignPro.Geometry.Tests/) | xUnit suite on `net8.0` |
 | [`tools/Probe-ShapeGeometry.ps1`](tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
-| [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) | Builds a scratch deck for exercising the ribbon by hand |
+| [`tools/New-SampleDeck.ps1`](tools/New-SampleDeck.ps1) | Builds a **saved** 10-slide sample deck, one slide per capability |
+| [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
 | [`tools/Test-AlignProEndToEnd.ps1`](tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Probe-UndoGrouping.ps1`](tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
 | [`tools/New-DevSigningCertificate.ps1`](tools/New-DevSigningCertificate.ps1) | Creates the machine-local certificate VSTO needs to build |
@@ -133,6 +134,7 @@ behaviour rather than failing, and it is logged.
 
 **PowerPoint's redo stack is cleared** by an AlignPro operation, as it would be by any edit.
 
-Manual verification: run [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) and follow the steps it
-prints. The headline check is slide 1 — align left with **Measure = Shape frame** (what PowerPoint
-does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).
+Manual verification: run [`tools/New-SampleDeck.ps1`](tools/New-SampleDeck.ps1), which writes a saved
+10-slide deck to your Documents folder and reopens it with a clean undo history. Each slide is
+captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
+(what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).
