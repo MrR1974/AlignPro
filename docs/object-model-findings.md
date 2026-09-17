@@ -90,7 +90,7 @@ layout: Title Slide
 Object-model changes **do** reach PowerPoint's undo stack. They are **coalesced into one entry per
 automation burst**, where a burst appears to be bounded by user interaction with the UI.
 
-Three observations, all consistent with that one rule:
+Four observations, all consistent with that one rule:
 
 | Experiment | What ran | One Ctrl+Z did |
 |---|---|---|
@@ -104,8 +104,9 @@ It is better explained by coalescing: that script was a single uninterrupted bur
 `Slides.Add`, so the one entry covering it took the slide with it when undone. `Presentations.Add()`
 yields a deck with no slides, which is why undoing the insertion emptied the deck.
 
-The second result rules out "geometry changes don't register" directly, and shows a human edit closes
-the group. The third shows that without an intervening interaction, consecutive operations merge.
+The second rules out "geometry changes don't register" directly, and shows a human edit closes the
+group. The third shows that without an intervening interaction, consecutive operations merge. The
+fourth is examined below.
 
 ### Fourth experiment: a ribbon click is not a boundary
 
