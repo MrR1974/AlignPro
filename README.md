@@ -92,23 +92,19 @@ Three design decisions that came out of measurement rather than preference:
 - **Match-size works in frame space** whatever bounds model is requested. Matching a rotated shape's
   visual width is ill-posed — at 90° it is driven entirely by the frame's height — and "make these the
   same size as that one" means frame size anyway.
-- **We fix PowerPoint's undo rather than replacing it.** PowerPoint coalesces object-model changes
-  into [one undo entry and keeps it open until a modifying command arrives from the UI](docs/object-model-findings.md)
-  — and a ribbon click is not one. So an AlignPro operation joins whatever entry is already open, and
-  one Ctrl+Z can discard an unbounded amount of earlier work. Measured: two commands on a scripted
-  deck, one Ctrl+Z, every slide gone.
+- **AlignPro keeps its own undo, because PowerPoint's cannot be trusted.** PowerPoint coalesces
+  object-model changes into [one undo entry and keeps it open until a modifying command arrives from
+  the UI](docs/object-model-findings.md) — and a ribbon click is not one. So an AlignPro operation
+  joins whatever entry is already open, and one Ctrl+Z can discard an unbounded amount of earlier
+  work. Measured: two commands on a scripted deck, one Ctrl+Z, every slide gone. **Use the AlignPro
+  Undo button, not Ctrl+Z.**
 
-  Repurposing the built-in Undo would have been the tidy fix, but PowerPoint parses
-  `<command idMso="Undo">` and never invokes the callback. Instead `UndoBoundary` closes the group
-  itself before each apply — toggle italic on the selection, verify the state actually changed, then
-  undo that toggle, which restores the formatting exactly. PowerPoint's entry then holds exactly one
-  AlignPro operation, so **Ctrl+Z, the ribbon Undo button and the QAT button are all correct**, with no
-  keyboard hook anywhere. The verification-before-undo matters: an unverified undo would revert the
-  user's own last edit, which is the very disaster being fixed.
-
-  Because native undo is now correct, AlignPro deliberately has **no undo button of its own** — a
-  second stack would disagree with PowerPoint's and misplace shapes. `UndoManager` is retained and
-  tested, but the ribbon does not use it.
+  Two fixes were tried and neither survives contact with a ribbon click. Repurposing the built-in
+  Undo: PowerPoint parses `<command idMso="Undo">` and never invokes the callback. Closing the
+  coalescing group ourselves (`UndoBoundary`): works from outside PowerPoint, but not from a ribbon
+  callback, because PowerPoint defers `ExecuteMso("Undo")` while a command is executing — so the
+  undo of our own formatting toggle landed *after* the geometry writes and reverted them, making the
+  button silently do nothing. `UndoBoundary` is kept, documented and unused.
 
 ## Status
 
@@ -119,22 +115,22 @@ Three design decisions that came out of measurement rather than preference:
 | 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls |
-| 3b. Undo coalescing | **Fixed and verified** — `UndoBoundary` makes native undo per-operation |
-| 3c. Automated end-to-end tests | **Done** — 7 checks green via the automation surface |
+| 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
+| 3c. Automated end-to-end tests | **Partly** — geometry is covered; the harness cannot reproduce a ribbon-callback context, which is how a real bug got through |
 | 4. Keyboard hook and bindings | Not started |
 | 5. ClickOnce packaging and signing | Not started |
 
 ### Known limitations
 
-**The undo boundary needs text formatting to exist.** `UndoBoundary` closes PowerPoint's coalescing
-group by toggling italic on the selection and undoing it. For a selection with no usable text
-formatting — some pictures, lines and placeholders — the state cannot be read, so no boundary is
-established and that operation may merge into the previously open undo entry. It degrades to the old
-behaviour rather than failing, and it is logged.
+**PowerPoint's own undo is unsafe after an AlignPro command.** Use the AlignPro Undo button. Ctrl+Z
+and the Quick Access Toolbar reach PowerPoint's coalesced entry, which may cover far more than your
+last action — up to and including everything a script did to build the deck.
 
-**PowerPoint's redo stack is cleared** by an AlignPro operation, as it would be by any edit.
+**Don't keep the sample deck in OneDrive.** PowerPoint enables AutoSave for OneDrive-backed files, so
+every experiment is written straight back into the fixture. `New-SampleDeck.ps1` therefore defaults to
+`sample\` beside the project, which is local and gitignored.
 
 Manual verification: run [`tools/New-SampleDeck.ps1`](tools/New-SampleDeck.ps1), which writes a saved
-10-slide deck to your Documents folder and reopens it with a clean undo history. Each slide is
+10-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
 captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
 (what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).

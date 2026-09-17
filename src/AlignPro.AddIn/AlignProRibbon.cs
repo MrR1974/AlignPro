@@ -82,9 +82,27 @@ namespace AlignPro.AddIn
         public void OnGrid(Office.IRibbonControl control) => Guard(() =>
             Report(Controller.Run(AlignVerb.GridArrange, "Arrange in grid"), "Arrange in grid"));
 
-        // Undo is deliberately absent. Each operation now forms its own entry in PowerPoint's undo
-        // stack (see UndoBoundary), so PowerPoint's own Undo is correct and a second stack of ours
-        // would only disagree with it.
+        // -- undo --------------------------------------------------------------------------------
+        // AlignPro keeps its own undo because PowerPoint's cannot be trusted after an object-model
+        // change: its entry may cover an unbounded amount of earlier work. Use these buttons rather
+        // than Ctrl+Z after an AlignPro command. See UndoBoundary for the attempt to fix the native
+        // behaviour and why it is not currently usable.
+
+        public void OnUndo(Office.IRibbonControl control) => Guard(() =>
+            Report(Controller.UndoLast(), "Undo"));
+
+        public void OnRedo(Office.IRibbonControl control) => Guard(() =>
+            Report(Controller.RedoLast(), "Redo"));
+
+        public bool GetUndoEnabled(Office.IRibbonControl control) => Controller.Undo.CanUndo;
+
+        public bool GetRedoEnabled(Office.IRibbonControl control) => Controller.Undo.CanRedo;
+
+        public string GetUndoLabel(Office.IRibbonControl control) =>
+            Controller.Undo.NextUndoLabel is string label ? "Undo " + label.ToLowerInvariant() : "Undo";
+
+        public string GetRedoLabel(Office.IRibbonControl control) =>
+            Controller.Undo.NextRedoLabel is string label ? "Redo " + label.ToLowerInvariant() : "Redo";
 
         // -- reference and bounds ----------------------------------------------------------------
 

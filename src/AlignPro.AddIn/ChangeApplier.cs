@@ -35,11 +35,11 @@ namespace AlignPro.AddIn
         {
             if (changes.Count == 0) return new ApplyOutcome(0, 0);
 
-            // Close PowerPoint's undo coalescing group first, so everything written below lands in an
-            // undo entry of its own rather than joining whatever was already open. Without this, one
-            // Ctrl+Z can discard an unbounded amount of earlier work.
-            UndoBoundary.TryClose(app);
-
+            // UndoBoundary is deliberately NOT called here. It works when invoked from outside
+            // PowerPoint, but not from a ribbon callback: PowerPoint defers ExecuteMso("Undo") while a
+            // command is executing, so the undo of our own formatting toggle landed AFTER the writes
+            // below and reverted them - the operation silently did nothing. See UndoBoundary's remarks
+            // and docs/object-model-findings.md.
             PowerPoint.Presentation? presentation = null;
             PowerPoint.Slides? slides = null;
             PowerPoint.Slide? slide = null;

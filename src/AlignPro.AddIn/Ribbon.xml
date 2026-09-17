@@ -109,11 +109,19 @@
         </group>
 
         <!--
-          No AlignPro-specific Undo here on purpose. Now that each operation forms its own entry in
-          PowerPoint's undo stack, a second parallel stack would be a liability rather than a feature:
-          undo once with Ctrl+Z and once with our button and the two disagree about what has already
-          been reversed, leaving shapes in the wrong place. One undo, PowerPoint's, is correct.
+          AlignPro's own undo. PowerPoint's native undo cannot be trusted after an object-model change
+          because its entry may cover an unbounded amount of earlier work, and the fix for that is not
+          usable from a ribbon callback (see UndoBoundary). So use these buttons, not Ctrl+Z.
         -->
+        <group id="grpUndo" label="AlignPro undo">
+          <button id="btnUndo" getLabel="GetUndoLabel" size="large" imageMso="Undo"
+                  getEnabled="GetUndoEnabled" onAction="OnUndo"
+                  screentip="Reverse the last AlignPro operation"
+                  supertip="Use this rather than Ctrl+Z after an AlignPro command. PowerPoint's own undo may reverse far more than you expect." />
+          <button id="btnRedo" getLabel="GetRedoLabel" size="large" imageMso="Redo"
+                  getEnabled="GetRedoEnabled" onAction="OnRedo"
+                  screentip="Reapply the operation just undone" />
+        </group>
 
       </tab>
     </tabs>

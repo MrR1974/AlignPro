@@ -29,6 +29,21 @@ namespace AlignPro.AddIn
     /// second toggle, which is lossy when the selection's formatting is mixed. See
     /// <c>docs/object-model-findings.md</c> and <c>tools/Probe-UndoGrouping.ps1</c>.
     /// </para>
+    /// <para>
+    /// <strong>Currently unused, and it must stay that way until the timing problem below is solved.</strong>
+    /// This works when called from outside PowerPoint but NOT from inside a ribbon callback.
+    /// PowerPoint will not run an undo while a command is executing, so <c>ExecuteMso("Undo")</c> is
+    /// deferred: the toggle applies synchronously, our geometry is written, and only then does the
+    /// deferred undo run - reverting the geometry instead of the toggle. The visible symptom is a
+    /// ribbon button that silently does nothing, while driving the same code through the automation
+    /// surface works perfectly.
+    /// </para>
+    /// <para>
+    /// The untested idea for rescuing it is to post the whole operation and run it outside the ribbon
+    /// callback, so <c>ExecuteMso</c> executes in the same context it does from script. Any such
+    /// attempt has to be verified with a real ribbon click: the end-to-end harness drives through
+    /// cross-process COM, which is precisely the context that behaves differently.
+    /// </para>
     /// </remarks>
     internal static class UndoBoundary
     {

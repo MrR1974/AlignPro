@@ -11,7 +11,12 @@
     history so Ctrl+Z behaves normally from the first click.
 
 .PARAMETER Path
-    Where to write the .pptx. Defaults to AlignPro-Sample.pptx in your Documents folder.
+    Where to write the .pptx. Defaults to sample\AlignPro-Sample.pptx beside the project.
+
+    Deliberately NOT your Documents folder: that is redirected to OneDrive, where PowerPoint turns
+    AutoSave on and silently writes every experiment straight back into the file. A fixture that
+    rewrites itself as you poke at it is no fixture at all. A local path keeps AutoSave off, so the
+    deck only changes if you explicitly save it.
 
 .PARAMETER Force
     Overwrite an existing file.
@@ -41,9 +46,14 @@ $msoAlignCenter               = 2
 $msoAlignRight                = 3
 
 if (-not $Path) {
-    $Path = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'AlignPro-Sample.pptx'
+    $sampleDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'sample'
+    if (-not (Test-Path $sampleDir)) { New-Item -ItemType Directory -Path $sampleDir | Out-Null }
+    $Path = Join-Path $sampleDir 'AlignPro-Sample.pptx'
 }
 $Path = [System.IO.Path]::GetFullPath($Path)
+
+$parent = Split-Path $Path -Parent
+if ($parent -and -not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent | Out-Null }
 
 if ((Test-Path $Path) -and -not $Force) {
     throw "'$Path' already exists. Use -Force to replace it."
