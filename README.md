@@ -26,18 +26,37 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 share a process, and Microsoft will not be updating the COM add-in platform. This is permanent, and
 it is the one place this repo deviates from its .NET 8 convention.
 
-**`dotnet build` does not build the whole solution.** `AlignPro.Geometry` and its tests do, and that
-is deliberate: the solver is `netstandard2.0` so the entire engine builds and its tests run on the
-dotnet CLI alone, with no Visual Studio and no PowerPoint. `AlignPro.AddIn` needs MSBuild with the
-Visual Studio "Office/SharePoint development" workload.
+**The dotnet CLI cannot touch the solution — only the two portable projects.** `AlignPro.AddIn` is an
+old-style VSTO project whose `$(VSToolsPath)` import resolves into Visual Studio, so
+`dotnet build AlignPro.sln` and `dotnet test AlignPro.sln` both fail to even load it. That is expected,
+and the split is deliberate: the solver is `netstandard2.0`, so the engine and its whole test suite
+build and run on the dotnet CLI with no Visual Studio and no PowerPoint.
 
 ```powershell
-# The engine and its tests - no Visual Studio needed
-dotnet test tests\AlignPro.Geometry.Tests
+# The engine and its tests - no Visual Studio needed. Target the PROJECT, not the solution.
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj
+
+# Everything, including the add-in - needs Visual Studio's MSBuild
+& "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
+    AlignPro.sln /p:Configuration=Debug /p:VisualStudioVersion=17.0
 
 # Measure PowerPoint's own behaviour (opens a new, never-saved presentation)
 .\tools\Probe-ShapeGeometry.ps1 -KeepOpen -OutFile docs\object-model-findings.md
 ```
+
+### First build after cloning
+
+VSTO refuses to build without signed ClickOnce manifests, and the signing certificate is machine-local
+so it is not in the repository. Generate one once:
+
+```powershell
+.\tools\New-DevSigningCertificate.ps1
+```
+
+That writes `AlignPro.AddIn_TemporaryKey.pfx` and `Signing.props` into the add-in project, both
+gitignored. Skip it and the build fails with *"Cannot build because the ClickOnce manifest signing
+option is not selected"*. The certificate is self-signed and trusted only on the machine that made it
+— shipping to colleagues needs a real code-signing certificate, which is a separate step.
 
 ## How the solver is shaped
 
