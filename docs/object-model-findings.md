@@ -137,8 +137,47 @@ the reflex reaches our per-operation stack instead of PowerPoint's coalesced ent
 
 **One limitation interception cannot fix.** We can claim the keystroke, but not PowerPoint's own Undo
 button on the ribbon or the Quick Access Toolbar — that is PowerPoint's own command, and clicking it
-still hits the coalesced entry. So interception narrows the hazard rather than removing it, and the
-residual risk has to be documented for users either way.
+still hits the coalesced entry. So interception narrows the hazard rather than removing it.
+
+### Fifth experiment: repurposing does not work in PowerPoint
+
+`customUI` lets an add-in repurpose a built-in command — `<command idMso="Undo" onAction="..."/>` — which
+would have covered the buttons as well as the keystroke. It was implemented, the ribbon parsed it (the
+tab kept working), and it had no effect.
+
+The add-in's own log settles why. After an Align left, the log holds
+`Ran 'Align left': applied=3 missing=0 slideId=256 undoDepth=1` and **no callback line at all**. The
+repurposed `onAction` is never invoked. PowerPoint accepts the markup and ignores it. This matches
+[MS-CUSTOMUI](https://learn.microsoft.com/en-us/openspecs/office_standards/ms-customui/21316865-fbce-4a3f-a9ff-a8277cce5f2d)
+allowing `onAction` only on commands that are simple buttons — PowerPoint's Undo is a split button with
+a history dropdown — but the practical answer is simply that it cannot be used.
+
+### Sixth experiment: closing the group ourselves
+
+Since only a *modifying* command closes the group, the search was for one whose effect is invisible.
+Measured with `tools/Probe-UndoGrouping.ps1`:
+
+| Candidate | Closes group | Visible change |
+|---|---|---|
+| `Bold` once | yes | text goes bold |
+| `Bold` / `Italic` twice (self-cancelling) | yes | none, but lossy on a *mixed* selection |
+| `Bold` on a shape with no text | yes | font state still changes |
+| **`Italic` then `ExecuteMso('Undo')`** | **yes** | **none** |
+
+The last is the one to use. A real undo restores the previous formatting exactly, so unlike a double
+toggle it is lossless even when the selection's formatting is mixed — and the group boundary survives
+undoing the command that created it.
+
+This inverts the whole approach: rather than intercepting undo, AlignPro can close the group
+immediately before it applies anything, so PowerPoint's own entry contains exactly one AlignPro
+operation. Native Ctrl+Z, the QAT button and the ribbon button then all behave correctly, and no
+keyboard hook is needed.
+
+**The one dangerous failure mode, and its guard.** If the `Italic` silently fails to create an undo
+entry, the following `Undo` would revert whatever came *before* — the user's own last edit, or the open
+coalesced group. That is precisely the disaster being fixed. So the formatting state is read before and
+after the toggle, and the `Undo` is only issued when the state actually changed. If it did not, the
+closer is skipped and we simply do without the boundary.
 
 
 ## Design implications

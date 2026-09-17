@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
@@ -82,74 +82,9 @@ namespace AlignPro.AddIn
         public void OnGrid(Office.IRibbonControl control) => Guard(() =>
             Report(Controller.Run(AlignVerb.GridArrange, "Arrange in grid"), "Arrange in grid"));
 
-        // -- undo --------------------------------------------------------------------------------
-
-        public void OnUndo(Office.IRibbonControl control) => Guard(() =>
-            Report(Controller.UndoLast(), "Undo"));
-
-        public void OnRedo(Office.IRibbonControl control) => Guard(() =>
-            Report(Controller.RedoLast(), "Redo"));
-
-        /// <summary>
-        /// PowerPoint's own Undo, repurposed. Takes over only while we have something of our own to
-        /// reverse and the undo stack belongs to the slide in view; otherwise
-        /// <paramref name="cancelDefault"/> stays false and PowerPoint undoes normally.
-        /// </summary>
-        /// <remarks>
-        /// The reason this exists is that PowerPoint's own entry may cover an unbounded amount of
-        /// earlier object-model work. See <c>docs/object-model-findings.md</c>.
-        /// </remarks>
-        public void OnRepurposedUndo(Office.IRibbonControl control, ref bool cancelDefault)
-        {
-            cancelDefault = false;
-
-            try
-            {
-                if (!Controller.CanUndoOnCurrentSlide()) return;
-
-                cancelDefault = true;
-                Report(Controller.UndoLast(), "Undo");
-            }
-            catch (Exception ex)
-            {
-                // Let PowerPoint handle the keystroke rather than swallowing it after a failure.
-                cancelDefault = false;
-                MessageBox.Show(
-                    ex.Message, "AlignPro could not undo",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        /// <summary>PowerPoint's own Redo, repurposed on the same terms as Undo.</summary>
-        public void OnRepurposedRedo(Office.IRibbonControl control, ref bool cancelDefault)
-        {
-            cancelDefault = false;
-
-            try
-            {
-                if (!Controller.CanRedoOnCurrentSlide()) return;
-
-                cancelDefault = true;
-                Report(Controller.RedoLast(), "Redo");
-            }
-            catch (Exception ex)
-            {
-                cancelDefault = false;
-                MessageBox.Show(
-                    ex.Message, "AlignPro could not redo",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        public bool GetUndoEnabled(Office.IRibbonControl control) => Controller.Undo.CanUndo;
-
-        public bool GetRedoEnabled(Office.IRibbonControl control) => Controller.Undo.CanRedo;
-
-        public string GetUndoLabel(Office.IRibbonControl control) =>
-            Controller.Undo.NextUndoLabel is string label ? "Undo " + label.ToLowerInvariant() : "Undo";
-
-        public string GetRedoLabel(Office.IRibbonControl control) =>
-            Controller.Undo.NextRedoLabel is string label ? "Redo " + label.ToLowerInvariant() : "Redo";
+        // Undo is deliberately absent. Each operation now forms its own entry in PowerPoint's undo
+        // stack (see UndoBoundary), so PowerPoint's own Undo is correct and a second stack of ours
+        // would only disagree with it.
 
         // -- reference and bounds ----------------------------------------------------------------
 

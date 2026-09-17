@@ -14,8 +14,18 @@ namespace AlignPro.AddIn
         internal AlignProController Controller =>
             _controller ?? (_controller = new AlignProController(Application));
 
+        private AlignProAutomation? _automation;
+
         protected override Office.IRibbonExtensibility CreateRibbonExtensibilityObject() =>
             new AlignProRibbon(() => Controller);
+
+        /// <summary>
+        /// Exposes <see cref="AlignProAutomation"/> at
+        /// <c>Application.COMAddIns.Item("AlignPro.AddIn").Object</c>, so AlignPro can be driven from
+        /// script - both for automated testing and as a macro surface.
+        /// </summary>
+        protected override object RequestComAddInAutomationService() =>
+            _automation ?? (_automation = new AlignProAutomation(() => Controller));
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {

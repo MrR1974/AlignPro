@@ -5,26 +5,11 @@
   whole matrix rather than needing a button per combination.
 -->
 <!--
-  The 2009/07 namespace (Office 2010+) is required for <commands> repurposing below; the older
-  2006/01 one does not support it.
+  There is deliberately no <commands> repurposing here. Routing the built-in Undo to our own stack was
+  implemented and measured: PowerPoint parses the markup and never invokes the callback, so it simply
+  does not work in this host. Undo is instead made correct at the source - see UndoBoundary.cs.
 -->
 <customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="OnRibbonLoad">
-
-  <!--
-    PowerPoint coalesces object-model changes into one undo entry and a ribbon click does not close
-    the group, so its native Undo can discard far more than the last AlignPro command - measured
-    removing four slides at once. Repurposing the built-in commands routes them to our own
-    per-operation stack instead. This covers the ribbon and Quick Access Toolbar buttons as well as
-    the keyboard shortcut, which a keyboard hook could not.
-
-    Interception is conditional: when our stack is empty the callbacks leave cancelDefault false and
-    PowerPoint's own undo runs exactly as normal, so ordinary editing is untouched.
-  -->
-  <commands>
-    <command idMso="Undo" onAction="OnRepurposedUndo" />
-    <command idMso="Redo" onAction="OnRepurposedRedo" />
-  </commands>
-
   <ribbon>
     <tabs>
       <tab id="AlignProTab" label="AlignPro">
@@ -123,13 +108,12 @@
                   screentip="Arrange the selection into an even grid, leaving sizes alone" />
         </group>
 
-        <group id="grpUndo" label="AlignPro">
-          <button id="btnUndo" getLabel="GetUndoLabel" size="large" imageMso="Undo"
-                  getEnabled="GetUndoEnabled" onAction="OnUndo"
-                  supertip="Reverses the last AlignPro operation. Separate from PowerPoint's own undo." />
-          <button id="btnRedo" getLabel="GetRedoLabel" size="large" imageMso="Redo"
-                  getEnabled="GetRedoEnabled" onAction="OnRedo" />
-        </group>
+        <!--
+          No AlignPro-specific Undo here on purpose. Now that each operation forms its own entry in
+          PowerPoint's undo stack, a second parallel stack would be a liability rather than a feature:
+          undo once with Ctrl+Z and once with our button and the two disagree about what has already
+          been reversed, leaving shapes in the wrong place. One undo, PowerPoint's, is correct.
+        -->
 
       </tab>
     </tabs>

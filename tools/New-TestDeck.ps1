@@ -25,6 +25,43 @@ $msoShapeRectangle            = 1
 $ppLayoutBlank                = 12
 $msoTextOrientationHorizontal = 1
 
+<#
+    Start PowerPoint as an ordinary process rather than letting New-Object create it.
+
+    An Office application created through COM automation is owned by the automation client, and
+    exits when the last reference to it is released - which happens the moment this script ends,
+    taking the deck with it. Starting the executable first and only then attaching leaves PowerPoint
+    user-owned, so it stays put after the script exits.
+#>
+$wasRunning = [bool] (Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue)
+if (-not $wasRunning) {
+    # GetValue('') reads a key's default value; Get-ItemProperty would need a property name that
+    # does not exist under Set-StrictMode.
+    $appPaths = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\POWERPNT.EXE'
+    $exe = $null
+    if (Test-Path $appPaths) {
+        try { $exe = (Get-Item $appPaths).GetValue('') } catch { $exe = $null }
+    }
+    if (-not $exe -or -not (Test-Path $exe)) {
+        $exe = Join-Path $env:ProgramFiles 'Microsoft Office\root\Office16\POWERPNT.EXE'
+    }
+    if (-not (Test-Path $exe)) { throw "Could not locate POWERPNT.EXE (looked at '$exe')." }
+
+    Write-Host 'Starting PowerPoint...' -ForegroundColor DarkGray
+    Start-Process -FilePath $exe | Out-Null
+
+    # Wait for a real window before attaching, so New-Object joins this instance instead of
+    # spinning up a second one that nobody owns.
+    $deadline = (Get-Date).AddSeconds(60)
+    do {
+        Start-Sleep -Milliseconds 500
+        $proc = Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue | Select-Object -First 1
+    } while ((-not $proc -or $proc.MainWindowHandle -eq 0) -and (Get-Date) -lt $deadline)
+
+    if (-not $proc -or $proc.MainWindowHandle -eq 0) { throw 'PowerPoint did not finish starting.' }
+    Start-Sleep -Seconds 1
+}
+
 $ppt = New-Object -ComObject PowerPoint.Application
 $ppt.Visible = $msoTrue
 $presentation = $ppt.Presentations.Add()

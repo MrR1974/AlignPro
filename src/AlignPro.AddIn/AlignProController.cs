@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
+using System.Globalization;
 using AlignPro.Geometry;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
@@ -105,6 +106,10 @@ namespace AlignPro.AddIn
                 _undoSlideId = selection.SlideId;
             }
             Undo.Push(transaction);
+            Diagnostics.Log(string.Format(
+                CultureInfo.InvariantCulture,
+                "Ran '{0}': applied={1} missing={2} slideId={3} undoDepth={4}",
+                label, outcome.Applied, outcome.Missing, selection.SlideId, Undo.UndoDepth));
 
             return CommandResult.Ok(BuildNote(solved, outcome));
         }
@@ -121,6 +126,23 @@ namespace AlignPro.AddIn
         /// </remarks>
         public bool CanUndoOnCurrentSlide() =>
             Undo.CanUndo && TryGetActiveSlideId() == _undoSlideId;
+
+        /// <summary>
+        /// Everything needed to tell apart the ways interception can decline: an empty stack, a slide
+        /// mismatch, or an unreadable active slide.
+        /// </summary>
+        public string DescribeUndoState()
+        {
+            var active = TryGetActiveSlideId();
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "canUndo={0} undoDepth={1} activeSlideId={2} undoSlideId={3} next='{4}'",
+                Undo.CanUndo,
+                Undo.UndoDepth,
+                active?.ToString(CultureInfo.InvariantCulture) ?? "null",
+                _undoSlideId,
+                Undo.NextUndoLabel ?? "-");
+        }
 
         public bool CanRedoOnCurrentSlide() =>
             Undo.CanRedo && TryGetActiveSlideId() == _undoSlideId;

@@ -1,4 +1,4 @@
-﻿<Project ToolsVersion="17.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="17.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <!--
     This section defines project-level properties.
@@ -240,11 +240,14 @@
   <!-- AlignPro's own code. Ribbon.xml is embedded and read back by AlignProRibbon.GetCustomUI, so
        its resource name must stay "<RootNamespace>.Ribbon.xml". -->
   <ItemGroup>
+    <Compile Include="AlignProAutomation.cs" />
     <Compile Include="AlignProController.cs" />
     <Compile Include="AlignProRibbon.cs" />
     <Compile Include="Com.cs" />
+    <Compile Include="Diagnostics.cs" />
     <Compile Include="ChangeApplier.cs" />
     <Compile Include="SelectionReader.cs" />
+    <Compile Include="UndoBoundary.cs" />
     <EmbeddedResource Include="Ribbon.xml" />
   </ItemGroup>
 

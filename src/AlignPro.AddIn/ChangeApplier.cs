@@ -35,6 +35,11 @@ namespace AlignPro.AddIn
         {
             if (changes.Count == 0) return new ApplyOutcome(0, 0);
 
+            // Close PowerPoint's undo coalescing group first, so everything written below lands in an
+            // undo entry of its own rather than joining whatever was already open. Without this, one
+            // Ctrl+Z can discard an unbounded amount of earlier work.
+            UndoBoundary.TryClose(app);
+
             PowerPoint.Presentation? presentation = null;
             PowerPoint.Slides? slides = null;
             PowerPoint.Slide? slide = null;
