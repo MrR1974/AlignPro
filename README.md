@@ -1,109 +1,250 @@
 # AlignPro
 
-A PowerPoint add-in for aligning, distributing, sizing and tidying shapes, doing the things the
-native tools won't: aligning to a designated anchor shape, exact numeric spacing, matching sizes,
-grid arrangement, and alignment on what you actually *see* rather than on PowerPoint's own rectangle.
+A PowerPoint add-in for aligning, distributing, sizing and tidying shapes — doing the things the
+built-in tools won't.
 
-## Why
+PowerPoint's own align and distribute have no anchor alignment, no exact spacing, no "make the same
+size", no grid tidying — and they align the raw object-model rectangle, which **ignores rotation**. A
+rotated shape aligned by PowerPoint is visibly out of line. AlignPro can align on what you actually
+see.
 
-PowerPoint's align and distribute tools have no anchor/key-object alignment, no exact spacing, no
-"make same size", no grid tidying, and they align the raw object-model rectangle — which
-[ignores rotation entirely](docs/object-model-findings.md), so rotated shapes end up visually wrong.
-
-## Layout
-
-| Path | What's in it |
-|---|---|
-| [`src/AlignPro.Geometry/`](src/AlignPro.Geometry/) | The solver and the undo journal. Pure logic, **zero Office references**, `netstandard2.0` |
-| [`src/AlignPro.AddIn/`](src/AlignPro.AddIn/) | The VSTO add-in: ribbon, selection adapter, apply pipeline, undo boundary, automation surface. `net48` |
-| [`tests/AlignPro.Geometry.Tests/`](tests/AlignPro.Geometry.Tests/) | xUnit suite on `net8.0` |
-| [`tools/Probe-ShapeGeometry.ps1`](tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
-| [`tools/New-SampleDeck.ps1`](tools/New-SampleDeck.ps1) | Builds a **saved** 10-slide sample deck, one slide per capability |
-| [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
-| [`tools/Test-AlignProEndToEnd.ps1`](tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
-| [`tools/Probe-UndoGrouping.ps1`](tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
-| [`tools/New-DevSigningCertificate.ps1`](tools/New-DevSigningCertificate.ps1) | Creates the machine-local certificate VSTO needs to build |
-| [`tools/Install-AlignPro.ps1`](tools/Install-AlignPro.ps1) | What an end user runs; ships inside the release zip |
-| [`tools/Uninstall-AlignPro.ps1`](tools/Uninstall-AlignPro.ps1) | Reverses it, and nothing else |
-| [`tools/New-Release.ps1`](tools/New-Release.ps1) | Tests, builds Release, packages the zip |
-| [`tools/Test-RibbonClicks.ps1`](tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
-| [`docs/object-model-findings.md`](docs/object-model-findings.md) | What the probe measured, and what it means for the design |
+---
 
 ## Installing
 
-Download the latest zip from Releases, extract it, close PowerPoint and run:
+Close PowerPoint, then paste this into PowerShell:
 
 ```powershell
-.\Install-AlignPro.ps1
+irm https://raw.githubusercontent.com/MrR1974/AlignPro/main/install.ps1 | iex
 ```
 
-No administrator rights, no Visual Studio, no compiler and no certificate. The script copies five
-files to `%LOCALAPPDATA%\AlignPro` and writes one registry value under `HKEY_CURRENT_USER`; that is
-the entire installation. `Uninstall-AlignPro.ps1` reverses exactly that and nothing else.
+Start PowerPoint — there will be an **AlignPro** tab on the ribbon.
 
-**AlignPro is not signed by a certificate authority**, so Windows cannot tell you who published it.
-That is a deliberate trade-off: publicly trusted code-signing certificates
-[can no longer be issued as an exportable `.pfx`](https://knowledge.digicert.com/alerts/code-signing-changes-in-2023)
-and must live on a hardware token, and
-[Azure Trusted Signing does not support ClickOnce](https://learn.microsoft.com/en-au/answers/questions/1791756/how-to-sign-clickonce-application-manifest-file-wi)
-at all. The source is here to be read and built by anyone who would rather verify than trust.
+No administrator rights: it installs for you alone, under your own user account. **To remove it:**
+Settings → Apps → Installed apps → **AlignPro** → Uninstall.
 
-**Installation requires trust, and the installer grants it - narrowly.** VSTO will not load an add-in
-unless the machine trusts the certificate that signed its manifest; without it PowerPoint sets
-`LoadBehavior` to 2 and the add-in silently never appears. The `|vstolocal` suffix controls where the
-add-in loads *from*, not whether it is trusted - an earlier version of this file claimed otherwise, on
-the strength of a test contaminated by inclusion-list entries Visual Studio had been adding on every
-build.
+### Why a command rather than a download
 
-The installer writes one VSTO inclusion-list entry: AlignPro's manifest path plus the public key that
-signed it, read out of the manifest itself so it cannot drift. No certificate store is touched, and the
-uninstaller revokes it. That grants strictly less than importing the certificate would, and costs
-nothing - a public code-signing certificate runs to about $1000 a year.
+Because a downloaded installer does not work well here, and it is worth being straight about why.
 
-What it needs is already on any machine that runs Office - .NET Framework 4.8 (part of Windows) and
-the VSTO runtime (part of Office). The installer checks both and says plainly if either is missing.
+Windows checks downloaded programs against SmartScreen's reputation database, and an unsigned file has
+no reputation to check. Microsoft's own guidance is explicit that for an unsigned file, reputation
+"must build for each new version of your files, starting with zero" — so an unsigned installer is
+warned about on *every* release, no matter how many people have installed the previous one, and a
+self-signed certificate counts as no signature at all. That is not a warning AlignPro can grow out of.
 
-## Two constraints worth knowing up front
+The command above sidesteps it rather than arguing with it: nothing is downloaded by the browser, so
+nothing goes through that check. It fetches this repository's `install.ps1` over HTTPS, and that script
+downloads the release, verifies it against the SHA-256 published beside it, and installs it. You can
+[read the script](install.ps1) before running it — it is the same file the command fetches.
 
-**The add-in targets `net48`, not .NET 8.** VSTO cannot target .NET Core/5+ — the two runtimes cannot
-share a process, and Microsoft will not be updating the COM add-in platform. This is permanent, and
-it is the one place this repo deviates from its .NET 8 convention.
+### If you would rather not paste a command
 
-**The dotnet CLI cannot touch the solution — only the two portable projects.** `AlignPro.AddIn` is an
-old-style VSTO project whose `$(VSToolsPath)` import resolves into Visual Studio, so
-`dotnet build AlignPro.sln` and `dotnet test AlignPro.sln` both fail to even load it. That is expected,
-and the split is deliberate: the solver is `netstandard2.0`, so the engine and its whole test suite
-build and run on the dotnet CLI with no Visual Studio and no PowerPoint.
+Download `AlignPro-<version>.zip` from [Releases](../../releases), then:
+
+1. **Right-click the zip → Properties → tick Unblock → OK.** Do this *before* extracting
+2. Extract it
+3. Close PowerPoint and double-click **Install AlignPro.cmd**
+
+Step 1 matters. Windows marks files that came from the internet, Explorer's extractor copies that mark
+onto everything inside, and Windows then refuses to run the installer script — without ever explaining
+why. Unblocking the zip first clears the mark for everything it contains.
+
+For managed deployment there is also an MSI on the release, which Intune and Group Policy can install
+per-user without any of this applying.
+
+### What the installer does, and what it asks of you
+
+Read this bit — installing an Office add-in involves a trust decision, and you should know which one.
+
+It copies the add-in, the sample deck and its own uninstaller to `%LOCALAPPDATA%\AlignPro`, and writes
+a few registry values under `HKEY_CURRENT_USER`: one telling PowerPoint where to find the add-in, and
+one listing AlignPro in Add/Remove Programs so you can uninstall it like anything else.
+
+Then it **grants trust**, because it has to. VSTO will not load an add-in unless the machine trusts the
+certificate that signed its manifest — without it, PowerPoint sets `LoadBehavior` to 2 and the add-in
+silently never appears. AlignPro is signed by a self-signed certificate that your machine has never
+heard of.
+
+There were three ways to solve that, and this is the narrowest:
+
+| | What you would be trusting |
+|---|---|
+| **A VSTO inclusion-list entry** ← what the installer does | This one add-in, at this one path, signed by this one key |
+| Importing the certificate | Anything ever signed by that certificate |
+| A publicly trusted certificate | Anything the publisher ever signs |
+
+So the installer adds a single entry to [VSTO's inclusion list](https://learn.microsoft.com/en-us/visualstudio/vsto/trusting-office-solutions-by-using-inclusion-lists?view=vs-2022),
+holding AlignPro's manifest path and the public key that signed it. **Nothing is added to any
+certificate store**, and uninstalling revokes the entry again.
+
+It is still a trust decision, just a precise one. If you would rather not make it, build from source
+instead — Visual Studio grants trust to what it builds.
+
+### What this does not give you
+
+Windows cannot tell you who published AlignPro. Only a certificate from a certificate authority fixes
+that, and the economics do not work for a tool like this: since June 2023 a traditional code-signing
+certificate's private key
+[must live on hardware](https://knowledge.digicert.com/alerts/code-signing-changes-in-2023). Microsoft's
+own [Artifact Signing](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options)
+service removed both the token and most of the cost — it starts at about $10 a month — but individual
+identity validation is limited to the United States and Canada, and the organisation route wants a
+legal entity with three years of trading history. Neither is available here.
+
+It would not solve the whole problem anyway: [Azure Trusted Signing does not support ClickOnce](https://learn.microsoft.com/en-au/answers/questions/1791756/how-to-sign-clickonce-application-manifest-file-wi),
+which is how VSTO manifests are signed, so the trust decision described above would remain either way.
+
+The source is here to read and build if you would rather verify than trust.
+
+### Requirements
+
+Already present on any machine that runs Office:
+
+- Windows with PowerPoint (desktop; not Microsoft 365 for the web)
+- .NET Framework 4.8, which ships with Windows 10 1903 and later
+- The VSTO runtime, which ships with Office
+---
+
+## Using it
+
+Select some shapes, then use the **AlignPro** tab. Two dropdowns carry the state the six align buttons
+are crossed with, so a small set of buttons covers a large matrix.
+
+### Align to
+
+| Reference | What the verbs measure against |
+|---|---|
+| **Anchor** | The shape you selected **last**. Select the others first, then Ctrl+click the one to align to |
+| **Selection bounds** | The outline of everything selected — what PowerPoint does natively |
+| **Slide** | The slide edges |
+| **Slide margins** | The slide inset by the **Margin (pt)** box |
+| **Content placeholder** | The body placeholder from the slide's layout |
+
+### Measure
+
+| Model | Which rectangle of each shape is aligned |
+|---|---|
+| **Shape frame** | PowerPoint's own rectangle. Ignores rotation — this is the native behaviour |
+| **Visual bounds** | What you actually see. Use this whenever rotated shapes are involved |
+| **Text bounds** | The text inside the shape rather than the shape itself. Lines up captions whose boxes differ |
+
+### Align
+
+Six buttons — **Left, Centre, Right, Top, Middle, Bottom** — applied to whichever Reference and
+Measure are selected.
+
+### Distribute
+
+**Space by** decides what actually gets spaced evenly. All four agree when the shapes are the same
+size, and diverge the moment they differ:
+
+| Mode | Spaces |
+|---|---|
+| **Leading edges** | Left edges horizontally, top edges vertically, at a constant pitch |
+| **Centres** | Centre to centre |
+| **Trailing edges** | Right edges horizontally, bottom edges vertically |
+| **Space between** | The visible gaps — the only mode that equalises what you see between shapes |
+
+**Exact (pt)** sets the spacing precisely; leave it blank to even out whatever is already there. In the
+three edge and centre modes the number is a *pitch*; in Space between it is the *gap*. Press **Enter**
+to commit the value.
+
+### Match size
+
+**Width**, **Height** or **Both**, matched to the anchor — select the others first, then the shape to
+match **last**. **From centre** holds each shape's centre while resizing instead of its top-left
+corner.
+
+Groups are skipped, and AlignPro tells you why: resizing a group rescales the gaps between its
+children, which silently distorts a diagram. A group makes a perfectly good *anchor*, though — it's
+only measured, never resized.
+
+### Arrange
+
+**Grid** tidies a scatter into even rows and columns, keeping each shape near where it already was.
+Sizes are never changed, so it's safe on groups. Leave **Columns** blank for a near-square grid.
+
+---
+
+## Two things worth knowing
+
+**Use AlignPro's Undo button, not Ctrl+Z.** PowerPoint groups changes made by an add-in into a single
+undo entry that can cover far more than your last action — in testing, one Ctrl+Z removed four slides.
+AlignPro's own Undo and Redo reverse exactly one operation at a time and say what they'll reverse.
+
+**The settings are sticky.** Reference, Measure, Space by and Exact (pt) persist until you change them,
+including across slides. If a result looks wrong, check those two dropdowns first — a `Reference` left
+on **Anchor** makes Grid lay out inside a single shape's bounds, which looks like the shapes have
+collapsed into a corner.
+
+---
+
+## Try it
+
+A ten-slide sample deck is **installed alongside the add-in**, at
+`%LOCALAPPDATA%\AlignPro\AlignPro-Sample.pptx`. It is also here in the repository at
+[`sample/AlignPro-Sample.pptx`](sample/AlignPro-Sample.pptx).
+
+One slide per capability, each captioned with what to try and what should happen. Slide 2 is the one
+to start with — align left with **Measure = Shape frame**, undo, then again with **Visual bounds**,
+and watch the rotated shape.
+
+---
+## Building from source
+<a id="building-from-source"></a>
+
+Needs Visual Studio 2022 with the **Office/SharePoint development** workload — VSTO projects cannot be
+built by the .NET CLI.
 
 ```powershell
-# The engine and its tests - no Visual Studio needed. Target the PROJECT, not the solution.
+.\tools\New-DevSigningCertificate.ps1     # once: VSTO will not build unsigned manifests
+```
+
+That creates a self-signed certificate used only to satisfy the build. It never leaves your machine
+and plays no part in installation.
+
+```powershell
+# The geometry engine and its tests - no Visual Studio, no PowerPoint
 dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj
 
-# Everything, including the add-in - needs Visual Studio's MSBuild
+# Everything, including the add-in
 & "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" `
     AlignPro.sln /p:Configuration=Debug /p:VisualStudioVersion=17.0
 
-# Measure PowerPoint's own behaviour (opens a new, never-saved presentation)
-.\tools\Probe-ShapeGeometry.ps1 -KeepOpen -OutFile docs\object-model-findings.md
+# Test, build Release, and package the zip, its checksum and the MSI
+# (the MSI needs: dotnet tool install --global wix --version 5.*; omit it with -SkipInstaller)
+.\tools\New-Release.ps1 -Version 1.0.0
 ```
 
-### First build after cloning
+That writes `dist\AlignPro-<version>.zip`, `dist\AlignPro-<version>.zip.sha256` and
+`dist\AlignPro-<version>.msi`. The zip and the checksum must both be attached to the GitHub release
+and keep those names: `install.ps1` looks them up by name and refuses to install without the checksum.
 
-VSTO refuses to build without signed ClickOnce manifests, and the signing certificate is machine-local
-so it is not in the repository. Generate one once:
+[`docs/development.md`](docs/development.md) is the companion to this file for anyone changing
+AlignPro: how the pieces fit, how the distribution route was chosen, and what was measured rather
+than assumed.
 
-```powershell
-.\tools\New-DevSigningCertificate.ps1
-```
+### How it's put together
 
-That writes `AlignPro.AddIn_TemporaryKey.pfx` and `Signing.props` into the add-in project, both
-gitignored. Skip it and the build fails with *"Cannot build because the ClickOnce manifest signing
-option is not selected"*. The certificate is self-signed and trusted only on the machine that made it
-— shipping to colleagues needs a real code-signing certificate, which is a separate step.
+`AlignPro.Geometry` targets `netstandard2.0` and has **no Office references at all** — it is pure
+geometry, so the whole engine and its test suite build and run on the .NET CLI with no Visual Studio
+and no PowerPoint. `AlignPro.AddIn` is a thin `net48` adapter: it reads the selection into immutable
+snapshots, hands them to the solver, and writes the results back.
 
-## Testing
+The solver reasons in whichever bounds space you asked for but always emits *frame* coordinates,
+because the frame is the only thing PowerPoint lets you write. Translation is rigid, so a delta
+measured in visual or text space is the same delta in frame space — which is how align and distribute
+get rotation- and text-awareness essentially for free.
 
-Three layers, because each catches what the others cannot.
+[`docs/object-model-findings.md`](docs/object-model-findings.md) records what was measured about
+PowerPoint's object model — rotation, selection order, group behaviour, undo coalescing — and why the
+code is shaped the way it is. Worth reading before changing anything in that area; several of those
+behaviours are not what the documentation implies.
+
+### Testing
+
+Three layers, because each catches what the others cannot:
 
 ```powershell
 dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 136, no PowerPoint
@@ -112,106 +253,14 @@ dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 136
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over
-cross-process COM, where no Office command is in flight - which is **not** the context a ribbon
-callback runs in. PowerPoint defers some operations while a command is executing, and a shipped bug
-where Align Left silently did nothing when clicked passed all seven of those checks.
+cross-process COM, where no Office command is in flight — which is not the context a ribbon callback
+runs in. A bug where Align Left silently did nothing when clicked passed all seven of those checks.
+`Test-RibbonClicks.ps1` clicks the actual ribbon through UI Automation, so Office dispatches the
+command exactly as it would for a person.
 
-`Test-RibbonClicks.ps1` uses COM only for setup and assertions and clicks the actual ribbon button
-through UI Automation, so Office dispatches the command exactly as it would for a person. Reintroducing
-that bug deliberately confirms the split is real: the COM harness still reports 7 of 7 passing, while
-the click harness reports *"Clicking Align Left moves shapes: FAIL - 0 of 4 shapes moved"*.
+---
 
-It deliberately avoids operations that raise a message box, since a modal dialog blocks PowerPoint's
-UI thread; those paths stay covered through the automation surface.
+## Licence
 
-## Cutting a release
+MIT — see [LICENSE](LICENSE).
 
-```powershell
-.\tools\New-Release.ps1 -Version 1.0.0
-```
-
-Runs the geometry tests, builds Release, and writes `dist\AlignPro-<version>.zip` - the five add-in
-files, both scripts and a readme, about 62KB. It deliberately publishes nothing; attaching the zip to
-a GitHub release stays a separate, deliberate act.
-
-There is no CI build for the add-in, and that is not an oversight: a VSTO project needs Visual Studio
-with the Office/SharePoint workload, which stock hosted runners do not have. The geometry engine and
-its tests build on the dotnet CLI alone and could be run in CI happily.
-
-## How the solver is shaped
-
-Every command is one request: `(Verb, Reference, BoundsModel, Options)`.
-
-- **Verb** — `AlignLeft/Right/Top/Bottom/CentreH/CentreV`, `DistributeH/V`,
-  `MatchWidth/Height/Both`, `GridArrange`
-- **Reference** — `Anchor`, `SelectionBounds`, `Slide`, `SlideMargins`, `PlaceholderBounds`
-- **BoundsModel** — `ShapeFrame` (PowerPoint's own), `VisualBounds` (rotation-aware), `TextBounds`
-- **DistributeMode** — what the distribute verbs actually space evenly: `LeadingEdge`
-  (left-to-left horizontally, top-to-top vertically), `Centre`, `TrailingEdge` (right-to-right,
-  bottom-to-bottom), or `Gap` (the visible space between shapes). Identical when every shape is the
-  same size; they diverge the moment sizes differ
-
-The six align edges are the verbs; anchor, slide and rotation awareness are the two orthogonal axes
-crossed over them. That is why a large feature list comes out of one small engine.
-
-**The central invariant:** the solver reasons in whichever bounds space was asked for, but always
-emits *frame* coordinates, because the frame is the only thing PowerPoint lets us write. Translation
-is rigid, so a delta measured in visual or text space is the same delta in frame space — which is how
-align and distribute get rotation- and text-awareness for free.
-
-Three design decisions that came out of measurement rather than preference:
-
-- **Groups are always one object.** The solver never descends into a group, so translation preserves
-  internal spacing for free. Resize verbs *refuse* groups by default, because scaling a group scales
-  the gaps between its children.
-- **Match-size works in frame space** whatever bounds model is requested. Matching a rotated shape's
-  visual width is ill-posed — at 90° it is driven entirely by the frame's height — and "make these the
-  same size as that one" means frame size anyway.
-- **AlignPro keeps its own undo, because PowerPoint's cannot be trusted.** PowerPoint coalesces
-  object-model changes into [one undo entry and keeps it open until a modifying command arrives from
-  the UI](docs/object-model-findings.md) — and a ribbon click is not one. So an AlignPro operation
-  joins whatever entry is already open, and one Ctrl+Z can discard an unbounded amount of earlier
-  work. Measured: two commands on a scripted deck, one Ctrl+Z, every slide gone. **Use the AlignPro
-  Undo button, not Ctrl+Z.**
-
-  Two fixes were tried and neither survives contact with a ribbon click. Repurposing the built-in
-  Undo: PowerPoint parses `<command idMso="Undo">` and never invokes the callback. Closing the
-  coalescing group ourselves (`UndoBoundary`): works from outside PowerPoint, but not from a ribbon
-  callback, because PowerPoint defers `ExecuteMso("Undo")` while a command is executing — so the
-  undo of our own formatting toggle landed *after* the geometry writes and reverted them, making the
-  button silently do nothing. `UndoBoundary` is kept, documented and unused.
-
-## Status
-
-| Phase | State |
-|---|---|
-| 0. Object-model spike | **Done** — six probes plus two follow-up undo experiments |
-| 1. Geometry engine + tests | **Done** — 136 tests passing |
-| 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
-| 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
-| 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
-| 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
-| 3c. Automated end-to-end tests | **Done** — 136 unit tests, 7 COM checks, and 8 real ribbon clicks |
-| 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
-| 5. Distribution | **Done** - unsigned local install, tested end to end. A signed channel is deferred until there is demand |
-
-### Known limitations
-
-**PowerPoint's own undo is unsafe after an AlignPro command.** Use the AlignPro Undo button. Ctrl+Z
-and the Quick Access Toolbar reach PowerPoint's coalesced entry, which may cover far more than your
-last action — up to and including everything a script did to build the deck.
-
-**Settings are sticky across slides, and that changes what a verb does.** Reference, Measure,
-Space by and Exact (pt) persist until you change them. A `Reference` left on **Anchor** makes Grid lay
-out inside a single shape's bounds, which packs the whole selection into that shape's footprint — it
-looks like the shapes have collapsed into a corner. Grid now falls back to the selection's extent and
-says so, but the general trap remains: when a result looks wrong, check Reference and Measure first.
-
-**Don't keep the sample deck in OneDrive.** PowerPoint enables AutoSave for OneDrive-backed files, so
-every experiment is written straight back into the fixture. `New-SampleDeck.ps1` therefore defaults to
-`sample\` beside the project, which is local and gitignored.
-
-Manual verification: run [`tools/New-SampleDeck.ps1`](tools/New-SampleDeck.ps1), which writes a saved
-10-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
-captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
-(what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).
