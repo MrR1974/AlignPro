@@ -83,17 +83,17 @@
                    screentip="Exact spacing in points; leave blank to even out what is already there"
                    supertip="In the three edge and centre modes this is the pitch. In Space between it is the gap." />
           <button id="btnDistributeH" label="Horizontally" size="large"
-                  imageMso="ObjectsAlignDistributeHorizontally" onAction="OnDistribute" />
+                  getImage="GetButtonImage" onAction="OnDistribute" />
           <button id="btnDistributeV" label="Vertically" size="large"
-                  imageMso="ObjectsAlignDistributeVertically" onAction="OnDistribute" />
+                  getImage="GetButtonImage" onAction="OnDistribute" />
         </group>
 
         <group id="grpSize" label="Match size">
-          <button id="btnMatchWidth" label="Width" onAction="OnMatchSize"
+          <button id="btnMatchWidth" label="Width" getImage="GetButtonImage" onAction="OnMatchSize"
                   screentip="Match every shape's width to the anchor" />
-          <button id="btnMatchHeight" label="Height" onAction="OnMatchSize"
+          <button id="btnMatchHeight" label="Height" getImage="GetButtonImage" onAction="OnMatchSize"
                   screentip="Match every shape's height to the anchor" />
-          <button id="btnMatchBoth" label="Both" onAction="OnMatchSize"
+          <button id="btnMatchBoth" label="Both" getImage="GetButtonImage" onAction="OnMatchSize"
                   screentip="Match width and height to the anchor" />
           <toggleButton id="tbResizeFromCentre" label="From centre"
                        getPressed="GetResizeFromCentre" onAction="OnResizeFromCentreChange"
@@ -104,7 +104,7 @@
           <editBox id="ebGridColumns" label="Columns" sizeString="0000"
                    getText="GetGridColumnsText" onChange="OnGridColumnsChange"
                    screentip="Leave blank for a near-square grid" />
-          <button id="btnGrid" label="Grid" onAction="OnGrid"
+          <button id="btnGrid" label="Grid" getImage="GetButtonImage" onAction="OnGrid"
                   screentip="Arrange the selection into an even grid, leaving sizes alone" />
         </group>
 

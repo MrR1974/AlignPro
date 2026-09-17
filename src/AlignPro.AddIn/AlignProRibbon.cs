@@ -41,6 +41,28 @@ namespace AlignPro.AddIn
 
         public void OnRibbonLoad(Office.IRibbonUI ribbon) => _ribbon = ribbon;
 
+        /// <summary>
+        /// Supplies AlignPro's own icons. Office calls this once per control and caches the result.
+        /// </summary>
+        /// <remarks>
+        /// Returning null leaves the button without an image, which is also what a wrong
+        /// <c>imageMso</c> silently does - so any drawing failure degrades to exactly the state we were
+        /// already in, rather than breaking the ribbon.
+        /// </remarks>
+        public stdole.IPictureDisp? GetButtonImage(Office.IRibbonControl control)
+        {
+            try
+            {
+                var bitmap = Icons.For(control.Id);
+                return bitmap == null ? null : PictureConverter.ToPictureDisp(bitmap);
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log("Icon for '" + control.Id + "' failed: " + ex.Message);
+                return null;
+            }
+        }
+
         // -- verbs -------------------------------------------------------------------------------
 
         public void OnAlign(Office.IRibbonControl control) => Guard(() =>
