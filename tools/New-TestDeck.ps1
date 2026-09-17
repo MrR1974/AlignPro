@@ -98,4 +98,12 @@ Write-Host '  2. Set Measure = Shape frame, click Align > Left. The rotated shap
 Write-Host '  3. AlignPro > Undo, set Measure = Visual bounds, click Align > Left again.'
 Write-Host '     Now every shape is visually flush - that is the whole point of the project.'
 Write-Host ''
+Write-Host 'WARNING about Ctrl+Z on this deck specifically:' -ForegroundColor Yellow
+Write-Host '  This script built the deck through the object model, which PowerPoint holds open as a'
+Write-Host '  single undo entry. AlignPro only claims Undo once it has an operation of its own to'
+Write-Host '  reverse, so pressing Ctrl+Z BEFORE your first AlignPro command falls through to'
+Write-Host '  PowerPoint and removes every slide. Do an AlignPro command first, then Ctrl+Z is ours.'
+Write-Host '  A deck you authored by hand does not have this problem - your own last edit closes the'
+Write-Host '  group.' -ForegroundColor Yellow
+Write-Host ''
 Write-Host 'Close without saving when done.' -ForegroundColor DarkGray

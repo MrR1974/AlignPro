@@ -62,7 +62,7 @@ namespace AlignPro.AddIn
                     }
                     finally
                     {
-                        Release(shape);
+                        Com.Release(shape);
                     }
                 }
 
@@ -88,7 +88,7 @@ namespace AlignPro.AddIn
                     }
                     finally
                     {
-                        Release(shape);
+                        Com.Release(shape);
                     }
                 }
 
@@ -96,10 +96,10 @@ namespace AlignPro.AddIn
             }
             finally
             {
-                Release(shapes);
-                Release(slide);
-                Release(slides);
-                Release(presentation);
+                Com.Release(shapes);
+                Com.Release(slide);
+                Com.Release(slides);
+                Com.Release(presentation);
             }
         }
 
@@ -124,13 +124,5 @@ namespace AlignPro.AddIn
 
         private static bool Differs(float current, float target, float tolerance) =>
             current > target + tolerance || current < target - tolerance;
-
-        private static void Release(object? comObject)
-        {
-            if (comObject != null && Marshal.IsComObject(comObject))
-            {
-                Marshal.ReleaseComObject(comObject);
-            }
-        }
     }
 }

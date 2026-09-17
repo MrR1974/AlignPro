@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using AlignPro.Geometry;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
@@ -106,6 +107,46 @@ namespace AlignPro.AddIn
             Undo.Push(transaction);
 
             return CommandResult.Ok(BuildNote(solved, outcome));
+        }
+
+        /// <summary>
+        /// Whether we should claim PowerPoint's Undo. True only when our stack holds something for the
+        /// slide currently in view, so editing elsewhere in the deck keeps native undo intact.
+        /// </summary>
+        /// <remarks>
+        /// This cannot be perfect. PowerPoint exposes no "document changed" event, so if the user makes
+        /// a manual edit on this slide after an AlignPro command, Ctrl+Z reverses our command rather
+        /// than their edit. That is recoverable - Redo puts it back - and is a far better failure than
+        /// native undo discarding an unbounded coalesced entry.
+        /// </remarks>
+        public bool CanUndoOnCurrentSlide() =>
+            Undo.CanUndo && TryGetActiveSlideId() == _undoSlideId;
+
+        public bool CanRedoOnCurrentSlide() =>
+            Undo.CanRedo && TryGetActiveSlideId() == _undoSlideId;
+
+        private int? TryGetActiveSlideId()
+        {
+            PowerPoint.DocumentWindow? window = null;
+            PowerPoint.Slide? slide = null;
+            try
+            {
+                if (_app.Windows.Count == 0) return null;
+
+                window = _app.ActiveWindow;
+                slide = window.View.Slide as PowerPoint.Slide;
+                return slide?.SlideID;
+            }
+            catch (COMException)
+            {
+                // No slide in view - the master, a notes page, or a slideshow.
+                return null;
+            }
+            finally
+            {
+                Com.Release(slide);
+                Com.Release(window);
+            }
         }
 
         public CommandResult UndoLast()

@@ -242,6 +242,7 @@
   <ItemGroup>
     <Compile Include="AlignProController.cs" />
     <Compile Include="AlignProRibbon.cs" />
+    <Compile Include="Com.cs" />
     <Compile Include="ChangeApplier.cs" />
     <Compile Include="SelectionReader.cs" />
     <EmbeddedResource Include="Ribbon.xml" />

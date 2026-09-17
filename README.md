@@ -89,12 +89,15 @@ Three design decisions that came out of measurement rather than preference:
 - **Match-size works in frame space** whatever bounds model is requested. Matching a rotated shape's
   visual width is ill-posed — at 90° it is driven entirely by the frame's height — and "make these the
   same size as that one" means frame size anyway.
-- **We keep our own undo journal.** PowerPoint does put object-model changes on its undo stack, but
-  coalesces them into [one entry per uninterrupted automation burst](docs/object-model-findings.md),
-  and it has no `UndoRecord` equivalent to control that. `UndoManager` gives labelled, per-operation
-  undo and redo instead — every `GeometryChange` carries its `OldFrame`, so it is its own undo record.
-  Whether we also need to *intercept* Ctrl+Z depends on whether a ribbon click closes the coalescing
-  group, which can only be measured once the ribbon exists.
+- **We keep our own undo journal, and we take over PowerPoint's Undo.** PowerPoint does put
+  object-model changes on its undo stack, but coalesces them into
+  [one entry per uninterrupted automation burst](docs/object-model-findings.md) — and a ribbon click
+  does *not* close that group, so its native Undo can discard an unbounded amount of earlier work.
+  Measured: two AlignPro commands on a scripted deck, one Ctrl+Z, every slide gone. `UndoManager`
+  gives labelled per-operation undo and redo instead — every `GeometryChange` carries its `OldFrame`,
+  so it is its own undo record — and the ribbon repurposes the built-in `Undo` and `Redo` commands so
+  the reflex reaches our stack. Repurposing was chosen over a keyboard hook because it also covers the
+  ribbon and Quick Access Toolbar buttons, which a hook cannot.
 
 ## Status
 
@@ -105,9 +108,22 @@ Three design decisions that came out of measurement rather than preference:
 | 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, both dropdowns, our own undo/redo |
-| 3b. Measure undo coalescing against a real ribbon click | Open — see [findings](docs/object-model-findings.md) |
+| 3b. Undo coalescing | **Measured and handled** — built-in Undo/Redo repurposed to our stack |
 | 4. Keyboard hook and bindings | Not started |
 | 5. ClickOnce packaging and signing | Not started |
+
+### Known limitations
+
+**Undo takeover is conditional, by design.** AlignPro claims Undo only while its own stack holds
+something for the slide in view; otherwise PowerPoint undoes normally, so ordinary editing is
+untouched. Two consequences worth knowing:
+
+- Before your first AlignPro command on a slide, Ctrl+Z is PowerPoint's — which on a deck built by a
+  script means one keystroke can remove everything the script did. `tools/New-TestDeck.ps1` warns
+  about this. A deck authored by hand does not have the problem, because your own last edit closes
+  PowerPoint's coalescing group.
+- PowerPoint exposes no "document changed" event, so if you make a manual edit *after* an AlignPro
+  command on the same slide, Ctrl+Z reverses our command rather than your edit. Redo puts it back.
 
 Manual verification: run [`tools/New-TestDeck.ps1`](tools/New-TestDeck.ps1) and follow the steps it
 prints. The headline check is slide 1 — align left with **Measure = Shape frame** (what PowerPoint

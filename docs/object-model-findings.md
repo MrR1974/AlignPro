@@ -97,6 +97,7 @@ Three observations, all consistent with that one rule:
 | `Probe-ShapeGeometry.ps1` probe 4 | One long script: `Slides.Add`, dozens of shape adds, deletes, groups and property writes, no user interaction anywhere | **Removed the whole slide** |
 | `Probe-UndoInteraction.ps1 -Stage Align` | A human drag, then one scripted move of `ProbeC` (two property writes) | **Reverted exactly that move** — `ProbeC` (300, 310) → (500, 250) |
 | `Probe-UndoInteraction.ps1 -Stage Granularity` | Two scripted moves back to back, no interaction between them | **Reverted both** — `ProbeA` and `ProbeC` together |
+| Real add-in, `New-TestDeck.ps1` deck | Scripted deck creation, then two ribbon commands, with selection and dropdown changes in between | **Removed every slide** |
 
 The first result looked like "geometry changes don't register", and was recorded that way at first.
 It is better explained by coalescing: that script was a single uninterrupted burst that *began* with
@@ -106,25 +107,38 @@ yields a deck with no slides, which is why undoing the insertion emptied the dec
 The second result rules out "geometry changes don't register" directly, and shows a human edit closes
 the group. The third shows that without an intervening interaction, consecutive operations merge.
 
+### Fourth experiment: a ribbon click is not a boundary
+
+Measured with the real add-in loaded. `New-TestDeck.ps1` built a four-slide deck through the object
+model; the user then selected shapes, changed the Measure dropdown, clicked **Align left**, then
+clicked **Align top**; then pressed Ctrl+Z once.
+
+**Every slide disappeared.** The whole session — the scripted deck creation and both ribbon
+operations — was a single undo entry.
+
+That refines the rule. The coalescing group is not closed by user *interaction*; it is closed by a
+document *modification* that originates in the UI. The drag in experiment 2 was such a modification.
+Selecting shapes, changing a dropdown and clicking a ribbon button are not, so none of them broke the
+group, and our two operations joined an entry that had been open since the first scripted slide.
+
 ### What this means for AlignPro
 
-The alarming case — one Ctrl+Z destroying a slide — is an artefact of scripting a long unbroken burst.
-An add-in never does that: each operation runs in response to a ribbon click or a hotkey.
+An AlignPro operation can be coalesced with an arbitrary amount of preceding object-model work, and
+one Ctrl+Z discards all of it.
 
-What is **not** yet known is where a ribbon click sits relative to the coalescing boundary. A human
-drag closes the group; whether clicking our own ribbon button does the same cannot be tested until the
-add-in exists. Two possibilities:
+- In a **human-authored deck**, the practical blast radius is consecutive AlignPro operations: the
+  user's own last manual edit closed the previous group, so Ctrl+Z undoes every AlignPro command since
+  then, as one step. Surprising, and still wrong, but bounded.
+- Where **object-model changes precede** ours — a macro, another add-in, our own scripts — the blast
+  radius is unbounded. That is the case measured above, and it destroyed four slides.
 
-- **A click is a boundary** → one click is one undo entry, native Ctrl+Z behaves correctly, and
-  `UndoManager` is a convenience (labels, redo, granularity) rather than a safety net.
-- **A click is not a boundary** → two quick operations merge, and one Ctrl+Z silently undoes both.
-  Then intercepting Ctrl+Z is worth doing.
+`UndoManager` is therefore load-bearing after all, not a convenience, and Ctrl+Z needs intercepting so
+the reflex reaches our per-operation stack instead of PowerPoint's coalesced entry.
 
-So `UndoManager` stays — it is built, tested, and costs nothing to keep, and it gives per-operation
-granularity plus labelled undo (`Undo Align left`) that PowerPoint will not. But Ctrl+Z interception
-is **deferred pending measurement**, not a prerequisite. It becomes the first thing to verify once the
-ribbon can move a shape: perform two operations in a row, press Ctrl+Z once, and see how much comes
-back.
+**One limitation interception cannot fix.** We can claim the keystroke, but not PowerPoint's own Undo
+button on the ribbon or the Quick Access Toolbar — that is PowerPoint's own command, and clicking it
+still hits the coalesced entry. So interception narrows the hazard rather than removing it, and the
+residual risk has to be documented for users either way.
 
 
 ## Design implications

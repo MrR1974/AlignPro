@@ -116,7 +116,7 @@ namespace AlignPro.AddIn
                     }
                     finally
                     {
-                        Release(shape);
+                        Com.Release(shape);
                     }
                 }
 
@@ -124,11 +124,11 @@ namespace AlignPro.AddIn
             }
             finally
             {
-                Release(presentation);
-                Release(slide);
-                Release(range);
-                Release(selection);
-                Release(window);
+                Com.Release(presentation);
+                Com.Release(slide);
+                Com.Release(range);
+                Com.Release(selection);
+                Com.Release(window);
             }
         }
 
@@ -192,8 +192,8 @@ namespace AlignPro.AddIn
             }
             finally
             {
-                Release(text);
-                Release(frame);
+                Com.Release(text);
+                Com.Release(frame);
             }
         }
 
@@ -234,8 +234,8 @@ namespace AlignPro.AddIn
                     }
                     finally
                     {
-                        Release(format);
-                        Release(placeholder);
+                        Com.Release(format);
+                        Com.Release(placeholder);
                     }
                 }
 
@@ -247,9 +247,9 @@ namespace AlignPro.AddIn
             }
             finally
             {
-                Release(placeholders);
-                Release(shapes);
-                Release(layout);
+                Com.Release(placeholders);
+                Com.Release(shapes);
+                Com.Release(layout);
             }
         }
 
@@ -263,14 +263,6 @@ namespace AlignPro.AddIn
             {
                 // Lines and a few other shape types have no flip state.
                 return false;
-            }
-        }
-
-        private static void Release(object? comObject)
-        {
-            if (comObject != null && Marshal.IsComObject(comObject))
-            {
-                Marshal.ReleaseComObject(comObject);
             }
         }
     }
