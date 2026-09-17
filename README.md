@@ -111,10 +111,10 @@ Three design decisions that came out of measurement rather than preference:
 | Phase | State |
 |---|---|
 | 0. Object-model spike | **Done** — six probes plus two follow-up undo experiments |
-| 1. Geometry engine + tests | **Done** — 126 tests passing |
+| 1. Geometry engine + tests | **Done** — 136 tests passing |
 | 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
-| 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls |
+| 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
 | 3c. Automated end-to-end tests | **Partly** — geometry is covered; the harness cannot reproduce a ribbon-callback context, which is how a real bug got through |
 | 4. Keyboard hook and bindings | Not started |
@@ -125,6 +125,12 @@ Three design decisions that came out of measurement rather than preference:
 **PowerPoint's own undo is unsafe after an AlignPro command.** Use the AlignPro Undo button. Ctrl+Z
 and the Quick Access Toolbar reach PowerPoint's coalesced entry, which may cover far more than your
 last action — up to and including everything a script did to build the deck.
+
+**Settings are sticky across slides, and that changes what a verb does.** Reference, Measure,
+Space by and Exact (pt) persist until you change them. A `Reference` left on **Anchor** makes Grid lay
+out inside a single shape's bounds, which packs the whole selection into that shape's footprint — it
+looks like the shapes have collapsed into a corner. Grid now falls back to the selection's extent and
+says so, but the general trap remains: when a result looks wrong, check Reference and Measure first.
 
 **Don't keep the sample deck in OneDrive.** PowerPoint enables AutoSave for OneDrive-backed files, so
 every experiment is written straight back into the fixture. `New-SampleDeck.ps1` therefore defaults to
