@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- netstandard2.0 on purpose: referenceable from the net48 VSTO add-in, yet testable on net8.0.
+       This project must never reference Office interop - everything here is pure geometry, so the
+       whole engine builds and its tests run with the dotnet CLI alone, no Visual Studio. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Document what is not obvious, not every property accessor. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

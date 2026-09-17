@@ -1,0 +1,24 @@
+# .NET
+bin/
+obj/
+*.user
+
+# VSTO / ClickOnce publish output
+*.vsto
+*.dll.manifest
+*.application
+publish/
+app.publish/
+
+# Signing material - never commit a key
+*.pfx
+*.snk
+
+# Editor
+.vs/
+.vscode/*
+!.vscode/extensions.json
+
+# OS
+Thumbs.db
+.DS_Store
