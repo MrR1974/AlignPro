@@ -49,14 +49,33 @@ namespace AlignPro.Geometry
         TextBounds
     }
 
-    /// <summary>What "evenly spaced" means for the distribute verbs.</summary>
+    /// <summary>
+    /// Which feature of each shape the distribute verbs space evenly. The axis comes from the verb,
+    /// so "leading" means the left edge for <see cref="AlignVerb.DistributeH"/> and the top edge for
+    /// <see cref="AlignVerb.DistributeV"/>.
+    /// </summary>
+    /// <remarks>
+    /// The first three space a reference <em>point</em> on each shape at a constant pitch, and give
+    /// identical results when every shape is the same size. They diverge as soon as sizes differ:
+    /// only <see cref="Gap"/> equalises the visible space between shapes, and only the pitch modes
+    /// give a regular rhythm regardless of what sits in each slot.
+    /// </remarks>
     public enum DistributeMode
     {
-        /// <summary>Equalise the edge-to-edge gaps between neighbours.</summary>
-        Gap,
+        /// <summary>Left edge to left edge horizontally, top edge to top edge vertically.</summary>
+        LeadingEdge,
 
-        /// <summary>Equalise the centre-to-centre pitch.</summary>
-        Centre
+        /// <summary>Centre to centre along the verb's axis.</summary>
+        Centre,
+
+        /// <summary>Right edge to right edge horizontally, bottom edge to bottom edge vertically.</summary>
+        TrailingEdge,
+
+        /// <summary>
+        /// Equalise the space between neighbours - one shape's trailing edge to the next shape's
+        /// leading edge. The only mode where shapes of differing sizes end up at an irregular pitch.
+        /// </summary>
+        Gap
     }
 
     /// <summary>Which part of a shape stays put while it is resized.</summary>

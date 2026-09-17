@@ -47,6 +47,10 @@ Every command is one request: `(Verb, Reference, BoundsModel, Options)`.
   `MatchWidth/Height/Both`, `GridArrange`
 - **Reference** — `Anchor`, `SelectionBounds`, `Slide`, `SlideMargins`, `PlaceholderBounds`
 - **BoundsModel** — `ShapeFrame` (PowerPoint's own), `VisualBounds` (rotation-aware), `TextBounds`
+- **DistributeMode** — what the distribute verbs actually space evenly: `LeadingEdge`
+  (left-to-left horizontally, top-to-top vertically), `Centre`, `TrailingEdge` (right-to-right,
+  bottom-to-bottom), or `Gap` (the visible space between shapes). Identical when every shape is the
+  same size; they diverge the moment sizes differ
 
 The six align edges are the verbs; anchor, slide and rotation awareness are the two orthogonal axes
 crossed over them. That is why a large feature list comes out of one small engine.

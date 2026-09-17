@@ -286,9 +286,18 @@ namespace AlignPro.Geometry
                 diagnostics.Add("An anchor does not define a span, so the selection's own extent was used.");
             }
 
+            // Sort by whatever is actually being distributed. For a pitch mode that is the reference
+            // point itself - distributing right edges should order shapes by right edge, which can
+            // differ from leading-edge order when widths vary a lot. Gap layout runs a cursor from
+            // the leading edge, so it sorts by that.
+            var mode = request.DistributeMode;
+            Func<ShapeSnapshot, double> sortKey = mode == DistributeMode.Gap
+                ? (Func<ShapeSnapshot, double>)(s => horizontal ? bounds[s.Key].Left : bounds[s.Key].Top)
+                : s => AnchorOf(bounds[s.Key], mode, horizontal);
+
             var ordered = shapes
-                .OrderBy(s => horizontal ? bounds[s.Key].Left : bounds[s.Key].Top)
-                .ThenBy(s => horizontal ? bounds[s.Key].CentreX : bounds[s.Key].CentreY)
+                .OrderBy(sortKey)
+                .ThenBy(s => Centre(bounds[s.Key], horizontal))
                 .ThenBy(s => s.Key.ShapeId)
                 .ToList();
 
@@ -310,30 +319,37 @@ namespace AlignPro.Geometry
 
             var changes = new List<GeometryChange>(ordered.Count);
 
-            if (request.DistributeMode == DistributeMode.Centre)
+            if (mode != DistributeMode.Gap)
             {
-                // Equalise centre-to-centre pitch.
-                var firstCentre = Centre(bounds[ordered[0].Key], horizontal);
-                double pitch;
-                if (hasExact)
+                // LeadingEdge, Centre and TrailingEdge are one algorithm: step a chosen reference
+                // point on each shape by a constant pitch. Only which point differs.
+                var firstBounds = bounds[ordered[0].Key];
+                var lastBounds = bounds[ordered[ordered.Count - 1].Key];
+
+                double firstAnchor, lastAnchor;
+                if (spanFromReference)
                 {
-                    pitch = request.ExactSpacing!.Value;
+                    // The outermost shapes sit flush against the ends of the span, and their
+                    // reference points follow from there.
+                    firstAnchor = spanStart + AnchorOffset(firstBounds, mode, horizontal);
+                    lastAnchor = spanEnd - Extent(lastBounds, horizontal)
+                                 + AnchorOffset(lastBounds, mode, horizontal);
                 }
                 else
                 {
-                    var lastCentre = spanFromReference
-                        ? spanEnd - Extent(bounds[ordered[ordered.Count - 1].Key], horizontal) / 2
-                        : Centre(bounds[ordered[ordered.Count - 1].Key], horizontal);
-                    if (spanFromReference) firstCentre = spanStart + Extent(bounds[ordered[0].Key], horizontal) / 2;
-                    pitch = (lastCentre - firstCentre) / (ordered.Count - 1);
+                    firstAnchor = AnchorOf(firstBounds, mode, horizontal);
+                    lastAnchor = AnchorOf(lastBounds, mode, horizontal);
                 }
+
+                var pitch = hasExact
+                    ? request.ExactSpacing!.Value
+                    : (lastAnchor - firstAnchor) / (ordered.Count - 1);
 
                 for (var i = 0; i < ordered.Count; i++)
                 {
                     var shape = ordered[i];
                     var b = bounds[shape.Key];
-                    var targetCentre = firstCentre + pitch * i;
-                    var delta = targetCentre - Centre(b, horizontal);
+                    var delta = firstAnchor + pitch * i - AnchorOf(b, mode, horizontal);
                     changes.Add(Translate(shape, horizontal, delta));
                 }
             }
@@ -510,6 +526,30 @@ namespace AlignPro.Geometry
         private static double Extent(RectD rect, bool horizontal) => horizontal ? rect.Width : rect.Height;
 
         private static double Centre(RectD rect, bool horizontal) => horizontal ? rect.CentreX : rect.CentreY;
+
+        /// <summary>
+        /// How far into a shape its distribute reference point sits, measured from the leading edge
+        /// along the verb's axis.
+        /// </summary>
+        private static double AnchorOffset(RectD bounds, DistributeMode mode, bool horizontal)
+        {
+            switch (mode)
+            {
+                case DistributeMode.LeadingEdge:
+                    return 0;
+                case DistributeMode.Centre:
+                    return Extent(bounds, horizontal) / 2;
+                case DistributeMode.TrailingEdge:
+                    return Extent(bounds, horizontal);
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(mode), mode, "Gap is laid out with a cursor, not from a reference point.");
+            }
+        }
+
+        /// <summary>The shape's distribute reference point, in slide coordinates.</summary>
+        private static double AnchorOf(RectD bounds, DistributeMode mode, bool horizontal) =>
+            (horizontal ? bounds.Left : bounds.Top) + AnchorOffset(bounds, mode, horizontal);
 
         private static GeometryChange Translate(ShapeSnapshot shape, bool horizontal, double delta) =>
             new GeometryChange(

@@ -241,6 +241,166 @@ public class DistributeTests
         Assert.Equal(50 + expectedGap, middleVisualLeft, 1e-9);
     }
 
+    // -- reference-point modes ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Three shapes of different widths, so all four modes disagree. Spans 0..460 throughout:
+    /// lefts 0 / 150 / 400, rights 100 / 190 / 460, centres 50 / 170 / 430.
+    /// </summary>
+    private static ShapeSnapshot[] UnequalWidths() => new[]
+    {
+        Make.Shape(1, 0, 10, 100, 20),
+        Make.Shape(2, 150, 10, 40, 20),
+        Make.Shape(3, 400, 10, 60, 20)
+    };
+
+    [Theory]
+    [InlineData(DistributeMode.LeadingEdge, 200)]   // lefts 0, 200, 400 - pitch 200
+    [InlineData(DistributeMode.Centre, 220)]        // centres 50, 240, 430 - pitch 190
+    [InlineData(DistributeMode.TrailingEdge, 240)]  // rights 100, 280, 460 - pitch 180
+    [InlineData(DistributeMode.Gap, 230)]           // 260pt of free space, 130 per gap
+    public void DistributeH_TheFourModesGiveFourDifferentAnswers(DistributeMode mode, double expectedMiddleLeft)
+    {
+        var result = Distribute(AlignVerb.DistributeH, UnequalWidths(), mode: mode);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(expectedMiddleLeft, result.FrameOf(2).Left, Tolerance);
+    }
+
+    [Theory]
+    [InlineData(DistributeMode.LeadingEdge)]
+    [InlineData(DistributeMode.Centre)]
+    [InlineData(DistributeMode.TrailingEdge)]
+    [InlineData(DistributeMode.Gap)]
+    public void DistributeH_EveryModeHoldsTheOutermostShapesStill(DistributeMode mode)
+    {
+        var result = Distribute(AlignVerb.DistributeH, UnequalWidths(), mode: mode);
+
+        Assert.Equal(0, result.FrameOf(1).Left, Tolerance);
+        Assert.Equal(460, result.FrameOf(3).Right, Tolerance);
+    }
+
+    [Fact]
+    public void DistributeH_EveryModeAgreesWhenTheShapesAreTheSameSize()
+    {
+        var shapes = new[]
+        {
+            Make.Shape(1, 0, 10, 50, 20),
+            Make.Shape(2, 130, 10, 50, 20),
+            Make.Shape(3, 300, 10, 50, 20)
+        };
+
+        var lefts = new[]
+        {
+            DistributeMode.LeadingEdge, DistributeMode.Centre,
+            DistributeMode.TrailingEdge, DistributeMode.Gap
+        }.Select(m => Distribute(AlignVerb.DistributeH, shapes, mode: m).FrameOf(2).Left).ToList();
+
+        Assert.All(lefts, left => Assert.Equal(150, left, Tolerance));
+    }
+
+    [Fact]
+    public void DistributeH_LeadingEdge_WithExactSpacing_StepsLeftEdges()
+    {
+        var result = Distribute(AlignVerb.DistributeH, UnequalWidths(),
+            mode: DistributeMode.LeadingEdge, exactSpacing: 120);
+
+        Assert.Equal(0, result.FrameOf(1).Left, Tolerance);
+        Assert.Equal(120, result.FrameOf(2).Left, Tolerance);
+        Assert.Equal(240, result.FrameOf(3).Left, Tolerance);
+    }
+
+    [Fact]
+    public void DistributeH_TrailingEdge_WithExactSpacing_StepsRightEdges()
+    {
+        var result = Distribute(AlignVerb.DistributeH, UnequalWidths(),
+            mode: DistributeMode.TrailingEdge, exactSpacing: 120);
+
+        Assert.Equal(100, result.FrameOf(1).Right, Tolerance);
+        Assert.Equal(220, result.FrameOf(2).Right, Tolerance);
+        Assert.Equal(340, result.FrameOf(3).Right, Tolerance);
+    }
+
+    [Fact]
+    public void DistributeH_TrailingEdge_OrdersByTrailingEdgeNotLeadingEdge()
+    {
+        // A starts left of B but its right edge is further right, so leading- and trailing-edge
+        // order disagree. Distributing right edges must use the trailing-edge order: B, A, C.
+        var shapes = new[]
+        {
+            Make.Shape(1, 0, 10, 300, 20),    // right = 300
+            Make.Shape(2, 50, 40, 100, 20),   // right = 150
+            Make.Shape(3, 500, 70, 50, 20)    // right = 550
+        };
+
+        var result = Distribute(AlignVerb.DistributeH, shapes, mode: DistributeMode.TrailingEdge);
+
+        // Rights run 150, 350, 550 - pitch 200. Only A moves, from right 300 to 350.
+        Assert.Equal(150, result.FrameOf(2).Right, Tolerance);
+        Assert.Equal(350, result.FrameOf(1).Right, Tolerance);
+        Assert.Equal(550, result.FrameOf(3).Right, Tolerance);
+    }
+
+    [Fact]
+    public void DistributeH_LeadingEdge_AcrossTheSlide_RunsEdgeToEdge()
+    {
+        var result = Distribute(AlignVerb.DistributeH, UnequalWidths(),
+            mode: DistributeMode.LeadingEdge, reference: ReferenceTarget.Slide);
+
+        // First flush left at 0, last flush right at 960 so its left is 900. Pitch 450.
+        Assert.Equal(0, result.FrameOf(1).Left, Tolerance);
+        Assert.Equal(450, result.FrameOf(2).Left, Tolerance);
+        Assert.Equal(900, result.FrameOf(3).Left, Tolerance);
+    }
+
+    [Fact]
+    public void DistributeH_TrailingEdge_AcrossTheSlide_RunsEdgeToEdge()
+    {
+        var result = Distribute(AlignVerb.DistributeH, UnequalWidths(),
+            mode: DistributeMode.TrailingEdge, reference: ReferenceTarget.Slide);
+
+        // First flush left at 0 so its right is 100; last flush right at 960. Pitch 430.
+        Assert.Equal(100, result.FrameOf(1).Right, Tolerance);
+        Assert.Equal(530, result.FrameOf(2).Right, Tolerance);
+        Assert.Equal(960, result.FrameOf(3).Right, Tolerance);
+    }
+
+    [Theory]
+    [InlineData(DistributeMode.LeadingEdge, 200)]
+    [InlineData(DistributeMode.Centre, 220)]
+    [InlineData(DistributeMode.TrailingEdge, 240)]
+    [InlineData(DistributeMode.Gap, 230)]
+    public void DistributeV_MirrorsTheHorizontalModesOnTheVerticalAxis(DistributeMode mode, double expectedMiddleTop)
+    {
+        var shapes = new[]
+        {
+            Make.Shape(1, 10, 0, 20, 100),
+            Make.Shape(2, 10, 150, 20, 40),
+            Make.Shape(3, 10, 400, 20, 60)
+        };
+
+        var result = Distribute(AlignVerb.DistributeV, shapes, mode: mode);
+
+        Assert.Equal(expectedMiddleTop, result.FrameOf(2).Top, Tolerance);
+    }
+
+    [Fact]
+    public void DistributeV_TrailingEdge_StepsBottomEdges()
+    {
+        var shapes = new[]
+        {
+            Make.Shape(1, 10, 0, 20, 100),
+            Make.Shape(2, 10, 150, 20, 40),
+            Make.Shape(3, 10, 400, 20, 60)
+        };
+
+        var result = Distribute(AlignVerb.DistributeV, shapes, mode: DistributeMode.TrailingEdge);
+
+        Assert.Equal(100, result.FrameOf(1).Bottom, Tolerance);
+        Assert.Equal(280, result.FrameOf(2).Bottom, Tolerance);
+        Assert.Equal(460, result.FrameOf(3).Bottom, Tolerance);
+    }
+
     [Fact]
     public void DistributeH_NotesThatAnAnchorDoesNotDefineASpan()
     {
