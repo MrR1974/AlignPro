@@ -29,6 +29,7 @@
 
         $env:ALIGNPRO_VERSION = '1.0.0'   # install a specific release instead of the latest
         $env:ALIGNPRO_PATH    = 'D:\...'  # install somewhere other than %LOCALAPPDATA%\AlignPro
+        $env:ALIGNPRO_NO_TUTORIAL = '1'   # do not open the tutorial deck when the install finishes
 #>
 
 Set-StrictMode -Version Latest
@@ -127,6 +128,41 @@ try {
     if ($env:ALIGNPRO_PATH) { $arguments['InstallPath'] = $env:ALIGNPRO_PATH }
 
     & $script @arguments
+
+    # --- open the tutorial -----------------------------------------------------------------------
+    # The deck is the fastest way to understand what the add-in does, and someone who has just run a
+    # one-line installer has nothing else in front of them. Failing to open it is never fatal: the
+    # install has already succeeded by this point, and the installer has printed the path.
+    if (-not $env:ALIGNPRO_NO_TUTORIAL) {
+        $installedTo = if ($env:ALIGNPRO_PATH) { $env:ALIGNPRO_PATH } else { Join-Path $env:LOCALAPPDATA 'AlignPro' }
+        $deck = Join-Path $installedTo 'AlignPro-Sample.pptx'
+
+        if (Test-Path -LiteralPath $deck) {
+            # PowerPoint loads add-ins when it starts, so a copy that was already running has no
+            # AlignPro tab in it. Opening the tutorial there would show the slides telling you to
+            # click a tab that is not on screen, which reads as a broken install.
+            if (Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue) {
+                Write-Host 'PowerPoint is already running, so the AlignPro tab is not in it yet.' -ForegroundColor Yellow
+                Write-Host 'Close PowerPoint, then open the tutorial to get started:' -ForegroundColor DarkGray
+                Write-Host "  $deck" -ForegroundColor DarkGray
+                Write-Host ''
+            }
+            else {
+                try {
+                    # Start-Process on the deck itself, so Windows picks whatever opens .pptx rather
+                    # than this script guessing where PowerPoint is installed.
+                    Start-Process -FilePath $deck | Out-Null
+                    Write-Host 'Opening the tutorial deck to get you started.' -ForegroundColor DarkGray
+                    Write-Host ''
+                }
+                catch {
+                    Write-Host "The tutorial deck could not be opened: $($_.Exception.Message)" -ForegroundColor DarkYellow
+                    Write-Host "  $deck" -ForegroundColor DarkGray
+                    Write-Host ''
+                }
+            }
+        }
+    }
 }
 catch {
     Fail "Installation failed: $($_.Exception.Message)" 'Nothing was left behind. Please report this if it repeats.'
