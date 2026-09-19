@@ -205,6 +205,17 @@ honest about that in any release notes rather than implying more.
 `New-Release.ps1` deliberately publishes nothing. It writes the files and prints the `gh release create`
 command; running it stays a separate, deliberate act.
 
+Two things to get right around it:
+
+- **Bump `AssemblyVersion` and `AssemblyFileVersion`** in `src/AlignPro.AddIn/Properties/AssemblyInfo.cs`
+  to match, and commit that before cutting the release, so the installed DLL says which version it is.
+  Nothing enforces this - 1.0.1 shipped with the assembly still reading 1.0.0.0, the tag having served
+  as the version of record.
+- **Name the repository when you create the release.** `gh release create` defaults to the remote it
+  infers from the checkout, which is not necessarily the one being released. Pass `--repo` explicitly,
+  and `--target <commit>` so the tag lands on the commit the assets were built from rather than on
+  whatever the default branch points at by then.
+
 There is no CI build for the add-in, and that is not an oversight: a VSTO project needs Visual Studio
 with the Office/SharePoint workload, which stock hosted runners do not have. The geometry engine and
 its tests build on the dotnet CLI alone and could be run in CI happily.

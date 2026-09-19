@@ -30,5 +30,9 @@ Thumbs.db
 # NOTE: sample/AlignPro-Sample.pptx is deliberately committed. It is the fixture the README points
 # people at, and tools/New-SampleDeck.ps1 regenerates it.
 
+# Office lock files. Because the deck above is both committed and meant to be opened, ~$AlignPro-
+# Sample.pptx appears beside it whenever anyone tries it, and is easy to sweep into a commit.
+~$*
+
 # Generated at build time from the signed manifest - belongs to one build, never committed
 installer/PublicKey.wxi
