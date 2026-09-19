@@ -31,6 +31,8 @@ NOTE: this selects programmatically. Confirm by clicking the three shapes by han
 the UI and the OM do not have to agree.
 ```
 
+**Confirmed by hand on 2026-09-19** — see *Probe 2 by hand* below. The caveat above is closed.
+
 ## 3. Does a group behave as one rigid object, preserving internal spacing?
 
 **RIGID ON TRANSLATE, PROPORTIONAL ON RESIZE - align/distribute are safe for groups as-is. Match-size rescales internal spacing, so it needs an explicit decision.**
@@ -230,15 +232,31 @@ occupied. That is what separates this from Bring to front.
 turn from the back of the target list forwards. Applied to a complete ordering that lands exactly on
 it, and the previous ordering is then a complete instruction for undoing it.
 
-## Still open: probe 2 by hand
+## Probe 2 by hand: selection order survives a mouse
 
-Probe 2 measured selection order through `ShapeRange` with the shapes selected **programmatically**,
-and noted that the UI and the object model need not agree. That caveat is still open, and it now
-carries more weight: ordering is built entirely on selection order, and so is the match-size cascade.
+Probe 2 measured selection order with the shapes selected **programmatically**, and flagged that the
+UI and the object model need not agree. That mattered more once ordering and the match-size cascade
+were built, because both rest entirely on selection order — and every harness here selects over COM,
+including the ribbon-click one, which clicks the *buttons* for real but still selects the *shapes*
+through the object model. Nothing automated could close it.
 
-`Test-RibbonClicks.ps1` narrows it — it selects each shape in a separate `Select` call rather than as
-one `Range`, and the ordering came back in that order — but those are still object-model calls, not
-mouse clicks. **Click three shapes by hand and read the range back** before treating this as settled.
+Measured by clicking three shapes by hand on slide 7 of the sample deck, in an order deliberately
+unlike their z-order, then reading the range back over COM.
+
+```text
+clicked in order:    Card3, Card1, Card2
+ShapeRange returned: Card3, Card1, Card2
+                     z=7    z=3    z=5
+slide z-order, back to front: Card1(3), BarA(4), Card2(5), BarB(6), Card3(7)
+```
+
+**SELECTION ORDER PRESERVED FOR A HAND-CLICKED SELECTION.** A fallback to z-order would have returned
+`Card1, Card2, Card3`; the range came back in click order instead, with the z-positions scrambled
+relative to it.
+
+So "the anchor is the last shape you selected" holds for real users and not just for automation, and
+the same goes for Order and for the cascade. The explicit *pin anchor* button that
+`Probe-ShapeGeometry.ps1` names as the fallback is not needed.
 
 ## Design implications
 
