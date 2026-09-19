@@ -223,7 +223,53 @@ Add-Box -Slide $s -Name 'Odd3' -X 130 -Y 350 -W 110 -H 90  -Colour $purple | Out
 Add-Box -Slide $s -Name 'Target' -X 600 -Y 230 -W 200 -H 120 -Colour $red -Label 'TARGET' | Out-Null
 
 # =================================================================================================
-# 7. Groups
+# 7. Order - stack in selection order
+# =================================================================================================
+$s = Add-Slide -Title 'Order: stack in the order you select' `
+               -Try  'Select Card 1, Ctrl+click Card 2 then Card 3 to add them, then click Order > Stack. Card 1 ends on top.'
+# Created in this sequence, so the z-order alternates card, bar, card, bar, card. The bars are what
+# proves the reordering happens in place: they must not change layer.
+Add-Box -Slide $s -Name 'Card1' -X 150 -Y 170 -W 220 -H 170 -Colour $blue   -Label 'Card 1' | Out-Null
+Add-Box -Slide $s -Name 'BarA'  -X 330 -Y 140 -W 40  -H 250 -Colour $grey   -Label ''       | Out-Null
+Add-Box -Slide $s -Name 'Card2' -X 340 -Y 210 -W 220 -H 170 -Colour $orange -Label 'Card 2' | Out-Null
+Add-Box -Slide $s -Name 'BarB'  -X 520 -Y 140 -W 40  -H 250 -Colour $grey   -Label ''       | Out-Null
+Add-Box -Slide $s -Name 'Card3' -X 530 -Y 170 -W 220 -H 170 -Colour $green  -Label 'Card 3' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 420, 880, 70)
+$hint.TextFrame2.TextRange.Text = 'The two grey bars are not in the selection, and they must come out on exactly the layers they went in on - one behind Card 2, one behind Card 3. That is the difference from Bring to front, which would drag all three cards over the top of them. Now click Order > Reverse to flip the pile, then select the cards in a different order and click Stack again.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 8. Match size with a margin
+# =================================================================================================
+$s = Add-Slide -Title 'Match size with a margin' `
+               -Try  'Type 10 in Margin (pt) and set Apply margin = All the same. Select the three shapes, Ctrl+click TARGET last, then click Match size > Both.'
+Add-Box -Slide $s -Name 'Step1' -X 110 -Y 180 -W 80  -H 130 -Colour $blue   -Label '1st' | Out-Null
+Add-Box -Slide $s -Name 'Step2' -X 240 -Y 220 -W 160 -H 60  -Colour $green  -Label '2nd' | Out-Null
+Add-Box -Slide $s -Name 'Step3' -X 130 -Y 350 -W 110 -H 90  -Colour $purple -Label '3rd' | Out-Null
+Add-Box -Slide $s -Name 'MarginTarget' -X 600 -Y 220 -W 220 -H 140 -Colour $red -Label 'TARGET' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'The margin is measured per side, so a margin of 10 takes 20 off each dimension and leaves a 10pt border showing all round. Now click AlignPro undo, set Apply margin to Cascade, select the shapes again in the same order and click Match size > Both: the shapes tier along the order you selected in, and the one you selected first ends smallest.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 9. Concentric rings - the two new features together
+# =================================================================================================
+$s = Add-Slide -Title 'Concentric rings' `
+               -Try  'Select 1st, then Ctrl+click 2nd, 3rd, 4th and 5th in turn. Click Align > Centre, then Align > Middle. Type 12 in Margin (pt), set Apply margin = Cascade, switch From centre on, then click Match size > Both. Finish by clicking Order > Stack.'
+Add-Box -Slide $s -Name 'Ring1' -X 90  -Y 180 -W 150 -H 110 -Colour $blue   -Label '1st' | Out-Null
+Add-Box -Slide $s -Name 'Ring2' -X 290 -Y 300 -W 170 -H 120 -Colour $green  -Label '2nd' | Out-Null
+Add-Box -Slide $s -Name 'Ring3' -X 500 -Y 170 -W 160 -H 130 -Colour $orange -Label '3rd' | Out-Null
+Add-Box -Slide $s -Name 'Ring4' -X 700 -Y 320 -W 180 -H 110 -Colour $purple -Label '4th' | Out-Null
+Add-Box -Slide $s -Name 'Ring5' -X 380 -Y 150 -W 200 -H 140 -Colour $red    -Label '5th' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 70)
+$hint.TextFrame2.TextRange.Text = 'Aligning centres and middles stacks them on one point; From centre then holds that point while the cascade tiers the sizes, so the borders come out even. The last step matters: the cascade makes the shape you selected first the smallest, and Order > Stack puts that same shape on top - so the rings are visible instead of hidden inside the largest. Keep the selection between steps and the order carries through all three commands.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 10. Groups
 # =================================================================================================
 $s = Add-Slide -Title 'Groups are one object' `
                -Try  'Align the group with the loose shapes - its internal spacing must not change. Then try Match size on it.'
@@ -240,7 +286,7 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 8. Text bounds
+# 11. Text bounds
 # =================================================================================================
 $s = Add-Slide -Title 'Align the text, not the box' `
                -Try  'All three frames already start at the same x. Select them and Align > Left with Measure = Text bounds.'
@@ -262,7 +308,7 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 9. Grid
+# 12. Grid
 # =================================================================================================
 $s = Add-Slide -Title 'Tidy a scatter into a grid' `
                -Try  'Select all nine circles. Leave Columns blank for a near-square grid, or type 3. Then Arrange > Grid.'
@@ -281,7 +327,7 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 10. Slide and margin references
+# 13. Slide and margin references
 # =================================================================================================
 $s = Add-Slide -Title 'Align to the slide, or to its margins' `
                -Try  'Select one shape. Reference = Slide then Align > Centre. Then Reference = Slide margins with Margin = 36.'

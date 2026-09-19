@@ -27,7 +27,7 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/New-DevSigningCertificate.ps1`](../tools/New-DevSigningCertificate.ps1) | Creates the machine-local certificate VSTO needs to build |
 | [`tools/Probe-ShapeGeometry.ps1`](../tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
 | [`tools/Probe-UndoGrouping.ps1`](../tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
-| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 10-slide sample deck, one slide per capability |
+| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 13-slide sample deck, one slide per capability |
 | [`tools/New-TestDeck.ps1`](../tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
 | [`tools/Test-AlignProEndToEnd.ps1`](../tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Test-RibbonClicks.ps1`](../tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
@@ -162,7 +162,7 @@ option is not selected"*. The certificate is self-signed and trusted only on the
 Three layers, because each catches what the others cannot.
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 136, no PowerPoint
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 161, no PowerPoint
 .\tools\Test-AlignProEndToEnd.ps1                                          # 7, PowerPoint via COM
 .\tools\Test-RibbonClicks.ps1                                              # 8, real ribbon clicks
 ```
@@ -221,6 +221,19 @@ Every command is one request: `(Verb, Reference, BoundsModel, Options)`.
   (left-to-left horizontally, top-to-top vertically), `Centre`, `TrailingEdge` (right-to-right,
   bottom-to-bottom), or `Gap` (the visible space between shapes). Identical when every shape is the
   same size; they diverge the moment sizes differ
+- **SizeMarginMode** — whether the match-size margin applies at all (`None`), once to every shape
+  (`Uniform`), or cumulatively along the selection (`Cascade`). The margin is measured **per side**,
+  so one step takes twice it off each dimension — which is what makes `Cascade` plus
+  `ResizeOrigin.Centre` come out as even concentric rings. Note there are now two settings called a
+  margin: this one and the slide inset behind `ReferenceTarget.SlideMargins`. They are unrelated
+
+**Ordering is the one verb that lives outside this request.** `ZOrderSolver` is a separate entry
+point with its own `OrderVerb`, because the align solver is defined by emitting frame coordinates and
+restacking emits no geometry at all. It works in terms of the slide's whole stacking order, back to
+front, and rewrites only the slots the selection already occupies — so unselected shapes keep their
+layer. `ZOrderPosition` is read-only in the object model, so the applier realises an ordering by
+calling `BringToFront` on each shape in turn from the back of the target list forwards; the ordering
+that was there before is itself the complete undo instruction.
 
 The six align edges are the verbs; anchor, slide and rotation awareness are the two orthogonal axes
 crossed over them. That is why a large feature list comes out of one small engine.
@@ -257,12 +270,12 @@ Three design decisions that came out of measurement rather than preference:
 | Phase | State |
 |---|---|
 | 0. Object-model spike | **Done** — six probes plus two follow-up undo experiments |
-| 1. Geometry engine + tests | **Done** — 136 tests passing |
+| 1. Geometry engine + tests | **Done** — 161 tests passing |
 | 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
-| 3c. Automated end-to-end tests | **Done** — 136 unit tests, 7 COM checks, and 8 real ribbon clicks |
+| 3c. Automated end-to-end tests | **Done** — 161 unit tests, 13 COM checks, and 13 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
 
@@ -273,7 +286,7 @@ and the Quick Access Toolbar reach PowerPoint's coalesced entry, which may cover
 last action — up to and including everything a script did to build the deck.
 
 **Settings are sticky across slides, and that changes what a verb does.** Reference, Measure,
-Space by and Exact (pt) persist until you change them. A `Reference` left on **Anchor** makes Grid lay
+Space by, Exact (pt) and Margin (pt) persist until you change them. A `Reference` left on **Anchor** makes Grid lay
 out inside a single shape's bounds, which packs the whole selection into that shape's footprint — it
 looks like the shapes have collapsed into a corner. Grid now falls back to the selection's extent and
 says so, but the general trap remains: when a result looks wrong, check Reference and Measure first.
@@ -283,6 +296,6 @@ every experiment is written straight back into the fixture. `New-SampleDeck.ps1`
 `sample\` beside the project, which is local and gitignored.
 
 Manual verification: run [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1), which writes a saved
-10-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
+13-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
 captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
 (what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).

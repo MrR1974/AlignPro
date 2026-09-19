@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -409,9 +409,19 @@ namespace AlignPro.Geometry
 
             var changes = new List<GeometryChange>(shapes.Count);
             var skippedGroups = 0;
+            var collapsed = 0;
 
-            foreach (var shape in shapes)
+            // Where the anchor sits in the selection is what the cascade counts from, so it has to be
+            // an indexed walk rather than a foreach.
+            var anchorIndex = 0;
+            for (var i = 0; i < shapes.Count; i++)
             {
+                if (shapes[i].Key == anchor.Key) { anchorIndex = i; break; }
+            }
+
+            for (var i = 0; i < shapes.Count; i++)
+            {
+                var shape = shapes[i];
                 if (shape.Key == anchor.Key) continue;
 
                 // Scaling a group scales the gaps between its children (measured, probe 3), which
@@ -422,8 +432,20 @@ namespace AlignPro.Geometry
                     continue;
                 }
 
-                var width = matchWidth ? anchor.Frame.Width : shape.Frame.Width;
-                var height = matchHeight ? anchor.Frame.Height : shape.Frame.Height;
+                // The margin is measured per side, so a step takes it off both edges of each dimension.
+                var inset = 2 * request.SizeMargin * StepsFromAnchor(request.SizeMarginMode, anchorIndex, i);
+
+                var width = matchWidth ? anchor.Frame.Width - inset : shape.Frame.Width;
+                var height = matchHeight ? anchor.Frame.Height - inset : shape.Frame.Height;
+
+                // A margin big enough to consume the anchor would ask for a negative size, which RectD
+                // rejects outright. Skip the shape and say so, rather than throwing out the whole
+                // operation over one shape at the far end of a long cascade.
+                if ((matchWidth && width <= 0) || (matchHeight && height <= 0))
+                {
+                    collapsed++;
+                    continue;
+                }
 
                 var newFrame = request.ResizeOrigin == ResizeOrigin.Centre
                     ? RectD.FromCentre(shape.Frame.CentreX, shape.Frame.CentreY, width, height)
@@ -439,18 +461,53 @@ namespace AlignPro.Geometry
                     : $"Skipped {skippedGroups} groups: resizing a group rescales the spacing inside it.");
             }
 
+            if (collapsed > 0)
+            {
+                diagnostics.Add(collapsed == 1
+                    ? "Skipped 1 shape: the margin would leave it with no size."
+                    : $"Skipped {collapsed} shapes: the margin would leave them with no size.");
+            }
+
             if (changes.Count == 0)
             {
+                if (collapsed > 0) return SolveResult.Refused("The margin is too large for the anchor's size.");
+
                 return SolveResult.Refused(skippedGroups > 0
                     ? "Every shape to resize is a group, and resizing a group rescales its internal spacing."
                     : "Nothing to resize.");
             }
 
-            // A skipped group is the user asking for something we deliberately did not do, so say so
+            // A skipped shape is the user asking for something we deliberately did not do, so say so
             // rather than leaving them looking at an unchanged shape wondering if the button works.
-            return skippedGroups > 0
+            return skippedGroups > 0 || collapsed > 0
                 ? SolveResult.OkWithNotice(changes, diagnostics.ToArray())
                 : SolveResult.Ok(changes, diagnostics.ToArray());
+        }
+
+        /// <summary>
+        /// How many margin steps a shape sits from the anchor. Zero leaves it the anchor's size, and
+        /// each step takes the margin off every side.
+        /// </summary>
+        /// <remarks>
+        /// The cascade counts along the selection, not across the slide, so the tiers follow the order
+        /// the user clicked in. The anchor is normally the last shape selected, which puts every other
+        /// shape ahead of it and tiers them down - the first selected ending smallest. A shape
+        /// selected *after* the anchor gets a negative step and grows, which is the same rule followed
+        /// consistently rather than a case needing its own handling.
+        /// </remarks>
+        private static int StepsFromAnchor(SizeMarginMode mode, int anchorIndex, int index)
+        {
+            switch (mode)
+            {
+                case SizeMarginMode.Uniform:
+                    return 1;
+
+                case SizeMarginMode.Cascade:
+                    return anchorIndex - index;
+
+                default:
+                    return 0;
+            }
         }
 
         // -----------------------------------------------------------------------------------------

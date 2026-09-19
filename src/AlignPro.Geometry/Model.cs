@@ -152,6 +152,60 @@ namespace AlignPro.Geometry
             string.Format(CultureInfo.InvariantCulture, "{0}: {1} -> {2}", Key, OldFrame, NewFrame);
     }
 
+    /// <summary>
+    /// A change to the slide's stacking order, recorded as the whole slide's ordering before and
+    /// after, back to front.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The whole slide is recorded rather than just the selection because PowerPoint gives no way to
+    /// write a shape's <c>ZOrderPosition</c> directly - the only lever is "bring this one to the
+    /// front". Replaying a complete ordering front-wards with that lever lands on exactly the order
+    /// asked for, and nothing else needs to be worked out. It also makes the inverse trivial: the
+    /// ordering that was there before is itself a complete instruction for getting back to it.
+    /// </para>
+    /// <para>
+    /// Only top-level shapes appear here. A shape inside a group has a z-position within its group
+    /// rather than within the slide, so ordering one against slide-level shapes is meaningless - the
+    /// reader refuses that selection rather than recording something it cannot honour.
+    /// </para>
+    /// </remarks>
+    public sealed class ZOrderChange
+    {
+        public ZOrderChange(IReadOnlyList<ShapeKey> oldOrder, IReadOnlyList<ShapeKey> newOrder)
+        {
+            OldOrder = oldOrder ?? throw new ArgumentNullException(nameof(oldOrder));
+            NewOrder = newOrder ?? throw new ArgumentNullException(nameof(newOrder));
+        }
+
+        /// <summary>The slide's stacking order as it was, back to front.</summary>
+        public IReadOnlyList<ShapeKey> OldOrder { get; }
+
+        /// <summary>The stacking order to apply, back to front.</summary>
+        public IReadOnlyList<ShapeKey> NewOrder { get; }
+
+        /// <summary>True when nothing would actually move, so the apply step can skip it.</summary>
+        public bool IsNoOp
+        {
+            get
+            {
+                if (OldOrder.Count != NewOrder.Count) return false;
+                for (var i = 0; i < OldOrder.Count; i++)
+                {
+                    if (OldOrder[i] != NewOrder[i]) return false;
+                }
+
+                return true;
+            }
+        }
+
+        /// <summary>The same change running backwards, ready to apply as an undo.</summary>
+        public ZOrderChange Inverted() => new ZOrderChange(NewOrder, OldOrder);
+
+        public override string ToString() =>
+            string.Format(CultureInfo.InvariantCulture, "z-order of {0} shapes", NewOrder.Count);
+    }
+
     /// <summary>Slide-level geometry the solver needs to resolve non-selection references.</summary>
     public sealed class SlideMetrics
     {
@@ -195,6 +249,8 @@ namespace AlignPro.Geometry
             DistributeMode distributeMode = DistributeMode.Gap,
             ResizeOrigin resizeOrigin = ResizeOrigin.TopLeft,
             bool allowGroupResize = false,
+            double sizeMargin = 0,
+            SizeMarginMode sizeMarginMode = SizeMarginMode.None,
             int? gridColumns = null,
             double gridGapH = 0,
             double gridGapV = 0,
@@ -208,6 +264,8 @@ namespace AlignPro.Geometry
             DistributeMode = distributeMode;
             ResizeOrigin = resizeOrigin;
             AllowGroupResize = allowGroupResize;
+            SizeMargin = sizeMargin;
+            SizeMarginMode = sizeMarginMode;
             GridColumns = gridColumns;
             GridGapH = gridGapH;
             GridGapV = gridGapV;
@@ -243,6 +301,20 @@ namespace AlignPro.Geometry
         /// between its children (measured, probe 3), which silently distorts diagrams.
         /// </summary>
         public bool AllowGroupResize { get; }
+
+        /// <summary>
+        /// How much smaller than the anchor each match-size step is, measured <em>per side</em> in
+        /// points. So one step takes twice this off the width and off the height, and a 10pt margin
+        /// leaves a 10pt border showing all round. Negative values grow the shapes instead.
+        /// </summary>
+        /// <remarks>Ignored unless <see cref="SizeMarginMode"/> says otherwise.</remarks>
+        public double SizeMargin { get; }
+
+        /// <summary>
+        /// Whether <see cref="SizeMargin"/> applies at all, once to every shape, or cumulatively
+        /// along the selection.
+        /// </summary>
+        public SizeMarginMode SizeMarginMode { get; }
 
         /// <summary>Columns for <see cref="AlignVerb.GridArrange"/>. Defaults to a near-square grid.</summary>
         public int? GridColumns { get; }

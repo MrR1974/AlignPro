@@ -78,6 +78,30 @@ namespace AlignPro.Geometry
         Gap
     }
 
+    /// <summary>
+    /// How the match-size verbs apply <see cref="AlignRequest.SizeMargin"/>.
+    /// </summary>
+    /// <remarks>
+    /// The margin is measured <em>per side</em>, so one step of it takes twice that off each dimension.
+    /// That convention is what makes the result concentric when paired with
+    /// <see cref="ResizeOrigin.Centre"/>: a 10pt margin leaves a 10pt border visible all the way
+    /// round, which is what someone nesting one shape inside another is actually asking for.
+    /// </remarks>
+    public enum SizeMarginMode
+    {
+        /// <summary>Match the anchor exactly. The original behaviour.</summary>
+        None,
+
+        /// <summary>Every shape is one step from the anchor, so they all end the same size.</summary>
+        Uniform,
+
+        /// <summary>
+        /// The step grows with distance from the anchor in selection order, so the shapes tier. With
+        /// the anchor selected last - the default - the first shape selected ends smallest.
+        /// </summary>
+        Cascade
+    }
+
     /// <summary>Which part of a shape stays put while it is resized.</summary>
     public enum ResizeOrigin
     {

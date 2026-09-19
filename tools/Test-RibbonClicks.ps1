@@ -67,6 +67,33 @@ function Get-PowerPointWindow {
     $window
 }
 
+<#
+    Maximises the PowerPoint window.
+
+    Not cosmetic. PowerPoint started over COM opens at roughly 500x400, and at that width Office
+    collapses every ribbon group into a single drop-down - so the individual buttons this harness
+    clicks are not in the UI Automation tree at all, and every case fails with "no button matching
+    'Left' is visible", which reads like the add-in failed to load. Whether the window happens to be
+    big enough is otherwise down to whatever size PowerPoint last remembered.
+#>
+function Expand-PowerPointWindow {
+    param($Window)
+    try {
+        $pattern = $Window.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
+        $pattern.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Maximized)
+        Start-Sleep -Milliseconds 800
+    }
+    catch {
+        Write-Host "  could not maximise the window: $($_.Exception.Message)" -ForegroundColor DarkYellow
+    }
+
+    $width = $Window.Current.BoundingRectangle.Width
+    if ($width -lt 1100) {
+        throw ("The PowerPoint window is only {0:F0}px wide. The ribbon collapses below about 1100px, " +
+               "which hides the buttons this harness clicks." -f $width)
+    }
+}
+
 function Select-AlignProTab {
     param($Window)
     $tab = $Window.FindFirst($TS::Descendants, (New-Object System.Windows.Automation.AndCondition(
@@ -142,8 +169,11 @@ $api = $addIn.Object
 [void]$api.SetBoundsModel('ShapeFrame')
 [void]$api.SetExactSpacing('')
 [void]$api.SetGridColumns('')
+[void]$api.SetSizeMargin('')
+[void]$api.SetSizeMarginMode('None')
 
 $window = Get-PowerPointWindow
+Expand-PowerPointWindow -Window $window
 Select-AlignProTab -Window $window
 Write-Host "Driving the ribbon of: $($window.Current.Name)" -ForegroundColor DarkGray
 
@@ -222,12 +252,71 @@ $distAfter = Get-Lefts -Slide 4 -Names $slide4
 $distMoved = @($slide4 | Where-Object { [Math]::Abs($distBefore[$_] - $distAfter[$_]) -gt $tolerance }).Count
 Add-Result 'Clicking Distribute moves shapes' ($distMoved -gt 0) "$distMoved of $($slide4.Count) shapes moved"
 
-$slide9 = 0..8 | ForEach-Object { "Dot$_" }
-Select-Shapes -Slide 9 -Names $slide9
+# Slide 12 in the sample deck: the Grid slide, after the three added for ordering and margins.
+$gridShapes = 0..8 | ForEach-Object { "Dot$_" }
+Select-Shapes -Slide 12 -Names $gridShapes
 $clicked = Invoke-RibbonButton -Window $window -Pattern 'Grid'
-$gridLefts = Get-Lefts -Slide 9 -Names $slide9
+$gridLefts = Get-Lefts -Slide 12 -Names $gridShapes
 $columns = @($gridLefts.Values | ForEach-Object { [Math]::Round($_, 0) } | Sort-Object -Unique).Count
 Add-Result 'Clicking Grid forms three columns' ($columns -eq 3) "$columns distinct columns"
+
+# =================================================================================================
+# Order, clicked - the path where a deferred call would be invisible from the COM harness
+# =================================================================================================
+# Selection ORDER is the whole input here, and Range(...).Select() says nothing about order, so the
+# shapes are clicked one at a time exactly as a person would.
+function Select-ShapesInOrder {
+    param([int] $Slide, [string[]] $Names)
+    $ppt.ActiveWindow.View.GotoSlide($Slide)
+    Start-Sleep -Milliseconds 250
+    $shapes = $presentation.Slides.Item($Slide).Shapes
+    $first = $true
+    foreach ($n in $Names) {
+        # Replace on the first, extend thereafter.
+        $shapes.Item($n).Select($(if ($first) { -1 } else { 0 }))
+        $first = $false
+        Start-Sleep -Milliseconds 120
+    }
+    Start-Sleep -Milliseconds 250
+}
+
+function Get-ZOrder { param([int] $Slide, [string] $Name)
+    [int]$presentation.Slides.Item($Slide).Shapes.Item($Name).ZOrderPosition }
+
+$orderSlide = 7
+$barABefore = Get-ZOrder -Slide $orderSlide -Name 'BarA'
+$barBBefore = Get-ZOrder -Slide $orderSlide -Name 'BarB'
+
+Select-ShapesInOrder -Slide $orderSlide -Names @('Card1', 'Card2', 'Card3')
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Stack'
+
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Order raises no dialog' $false $dialog } else { Add-Result 'Order raises no dialog' $true '' }
+
+$z1 = Get-ZOrder -Slide $orderSlide -Name 'Card1'
+$z2 = Get-ZOrder -Slide $orderSlide -Name 'Card2'
+$z3 = Get-ZOrder -Slide $orderSlide -Name 'Card3'
+
+# Card1 was clicked first, so it must end above the other two. This is the assertion that would fail
+# if Shape.ZOrder were deferred the way ExecuteMso is inside a ribbon callback.
+Add-Result 'Clicking Stack puts the first selected on top' (($z1 -gt $z2) -and ($z2 -gt $z3)) `
+    "Card1=$z1 Card2=$z2 Card3=$z3 (higher is nearer the front)"
+
+$barAAfter = Get-ZOrder -Slide $orderSlide -Name 'BarA'
+$barBAfter = Get-ZOrder -Slide $orderSlide -Name 'BarB'
+Add-Result 'Unselected shapes keep their layer' `
+    (($barABefore -eq $barAAfter) -and ($barBBefore -eq $barBAfter)) `
+    "BarA $barABefore->$barAAfter, BarB $barBBefore->$barBAfter"
+
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Reverse'
+$r1 = Get-ZOrder -Slide $orderSlide -Name 'Card1'
+$r3 = Get-ZOrder -Slide $orderSlide -Name 'Card3'
+Add-Result 'Clicking Reverse flips the stack' ($r3 -gt $r1) "Card1=$r1 Card3=$r3"
+
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
+$u1 = Get-ZOrder -Slide $orderSlide -Name 'Card1'
+$u3 = Get-ZOrder -Slide $orderSlide -Name 'Card3'
+Add-Result 'Undo restores the previous stacking' ($u1 -gt $u3) "Card1=$u1 Card3=$u3"
 
 # =================================================================================================
 Write-Host ''

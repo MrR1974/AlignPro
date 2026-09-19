@@ -182,6 +182,184 @@ public class MatchSizeTests
     }
 }
 
+/// <summary>
+/// The margin is measured per side, so one step takes twice it off each dimension. The anchor is last in
+/// the selection in every test here, matching what SelectionReader hands the solver.
+/// </summary>
+public class MatchSizeMarginTests
+{
+    private const double Tolerance = 1e-9;
+
+    private static SolveResult Match(
+        AlignVerb verb,
+        ShapeSnapshot[] shapes,
+        double margin,
+        SizeMarginMode mode,
+        int anchorId,
+        ResizeOrigin origin = ResizeOrigin.TopLeft) =>
+        AlignSolver.Solve(
+            new AlignRequest(
+                verb,
+                ReferenceTarget.Anchor,
+                BoundsModel.ShapeFrame,
+                Make.Key(anchorId),
+                resizeOrigin: origin,
+                sizeMargin: margin,
+                sizeMarginMode: mode),
+            shapes,
+            Make.Slide());
+
+    /// <summary>Three shapes to resize, then the anchor last - the shape of a real selection.</summary>
+    private static ShapeSnapshot[] ThreeThenAnchor() => new[]
+    {
+        Make.Shape(1, 0, 0, 50, 50),
+        Make.Shape(2, 100, 0, 50, 50),
+        Make.Shape(3, 200, 0, 50, 50),
+        Make.Shape(9, 300, 0, 200, 100)
+    };
+
+    [Fact]
+    public void Uniform_TakesTheMarginOffEverySide()
+    {
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 10, SizeMarginMode.Uniform, anchorId: 9);
+
+        // 10pt each side, so 20 off each dimension - the same for all three.
+        foreach (var id in new[] { 1, 2, 3 })
+        {
+            Assert.Equal(180, result.FrameOf(id).Width, Tolerance);
+            Assert.Equal(80, result.FrameOf(id).Height, Tolerance);
+        }
+    }
+
+    [Fact]
+    public void Uniform_LeavesTheAnchorAlone()
+    {
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 10, SizeMarginMode.Uniform, anchorId: 9);
+
+        Assert.False(result.Touched(9));
+    }
+
+    [Fact]
+    public void Cascade_MakesTheFirstSelectedSmallest()
+    {
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 10, SizeMarginMode.Cascade, anchorId: 9);
+
+        // Anchor 200 wide; three steps back from it, then two, then one.
+        Assert.Equal(140, result.FrameOf(1).Width, Tolerance);
+        Assert.Equal(160, result.FrameOf(2).Width, Tolerance);
+        Assert.Equal(180, result.FrameOf(3).Width, Tolerance);
+
+        Assert.True(result.FrameOf(1).Width < result.FrameOf(2).Width);
+        Assert.True(result.FrameOf(2).Width < result.FrameOf(3).Width);
+    }
+
+    [Fact]
+    public void Cascade_TiersHeightByTheSamePoints()
+    {
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 10, SizeMarginMode.Cascade, anchorId: 9);
+
+        // Same points off each dimension, so a 200x100 anchor tiers to 140x40, not proportionally.
+        Assert.Equal(40, result.FrameOf(1).Height, Tolerance);
+        Assert.Equal(60, result.FrameOf(2).Height, Tolerance);
+        Assert.Equal(80, result.FrameOf(3).Height, Tolerance);
+    }
+
+    [Fact]
+    public void Cascade_WithCentreOrigin_NestsConcentrically()
+    {
+        var result = Match(
+            AlignVerb.MatchBoth, ThreeThenAnchor(), 10, SizeMarginMode.Cascade,
+            anchorId: 9, origin: ResizeOrigin.Centre);
+
+        // Every shape keeps its own centre, which is what makes the rings concentric once they are
+        // stacked on the anchor.
+        Assert.Equal(25, result.FrameOf(1).CentreX, Tolerance);
+        Assert.Equal(125, result.FrameOf(2).CentreX, Tolerance);
+        Assert.Equal(225, result.FrameOf(3).CentreX, Tolerance);
+    }
+
+    [Fact]
+    public void NegativeMargin_GrowsTheShapesInstead()
+    {
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), -10, SizeMarginMode.Uniform, anchorId: 9);
+
+        Assert.Equal(220, result.FrameOf(1).Width, Tolerance);
+        Assert.Equal(120, result.FrameOf(1).Height, Tolerance);
+    }
+
+    [Fact]
+    public void MatchWidth_LeavesHeightAloneEvenWithAMargin()
+    {
+        var result = Match(AlignVerb.MatchWidth, ThreeThenAnchor(), 10, SizeMarginMode.Uniform, anchorId: 9);
+
+        Assert.Equal(180, result.FrameOf(1).Width, Tolerance);
+        Assert.Equal(50, result.FrameOf(1).Height, Tolerance);
+    }
+
+    [Fact]
+    public void NoneMode_IgnoresTheMarginEntirely()
+    {
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 25, SizeMarginMode.None, anchorId: 9);
+
+        Assert.Equal(200, result.FrameOf(1).Width, Tolerance);
+        Assert.Equal(100, result.FrameOf(1).Height, Tolerance);
+    }
+
+    [Fact]
+    public void Cascade_SkipsOnlyTheShapesTheMarginWouldCollapse()
+    {
+        // 60pt a side against a 100pt-tall anchor: step 1 leaves -20 height, steps 2 and 3 worse.
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 60, SizeMarginMode.Cascade, anchorId: 9);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("too large", string.Join(" ", result.Diagnostics), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Cascade_ResizesWhatItCanAndReportsWhatItSkipped()
+    {
+        // 30pt a side: step 1 leaves 140x40, step 2 leaves 80x-20, step 3 worse still.
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), 30, SizeMarginMode.Cascade, anchorId: 9);
+
+        Assert.True(result.Succeeded);
+        Assert.True(result.Notable);
+        Assert.True(result.Touched(3));
+        Assert.False(result.Touched(2));
+        Assert.False(result.Touched(1));
+        Assert.Contains("no size", string.Join(" ", result.Diagnostics), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Cascade_GrowsShapesSelectedAfterTheAnchor()
+    {
+        // Anchor first, so the others sit after it and the same rule tiers them upwards.
+        var result = Match(AlignVerb.MatchBoth, new[]
+        {
+            Make.Shape(9, 300, 0, 200, 100),
+            Make.Shape(1, 0, 0, 50, 50),
+            Make.Shape(2, 100, 0, 50, 50)
+        }, 10, SizeMarginMode.Cascade, anchorId: 9);
+
+        Assert.Equal(220, result.FrameOf(1).Width, Tolerance);
+        Assert.Equal(240, result.FrameOf(2).Width, Tolerance);
+    }
+
+    [Fact]
+    public void Margin_StillSkipsGroups()
+    {
+        var result = Match(AlignVerb.MatchBoth, new[]
+        {
+            Make.Shape(1, 0, 0, 50, 50, isGroup: true),
+            Make.Shape(2, 100, 0, 50, 50),
+            Make.Shape(9, 300, 0, 200, 100)
+        }, 10, SizeMarginMode.Uniform, anchorId: 9);
+
+        Assert.True(result.Notable);
+        Assert.False(result.Touched(1));
+        Assert.Equal(180, result.FrameOf(2).Width, Tolerance);
+    }
+}
+
 public class GridTests
 {
     private const double Tolerance = 1e-9;

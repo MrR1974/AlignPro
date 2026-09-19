@@ -21,6 +21,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $msoTrue           = -1
+$msoFalse          = 0
+# MsoZOrderCmd, for building the ordering fixture.
+$msoSendToBack     = 1
+$msoBringForward   = 2
 $msoShapeRectangle = 1
 $ppLayoutBlank     = 12
 $tolerance         = 0.75
@@ -214,7 +218,11 @@ try {
     Add-Result 'Frame mode misaligns rotated shape' ($misalignment -gt 2) `
         ("rotated shape sits {0:F1}pt out visually" -f $misalignment)
 
-    $ppt.CommandBars.ExecuteMso('Undo')
+    # AlignPro's own undo, not ExecuteMso. This is only resetting between two sub-checks, and the
+    # native one reaches the coalesced entry that still covers this fixture's own Slides.Add - which
+    # deletes the slide and takes the rest of the case with it. Cases 1 and 2 above use ExecuteMso
+    # deliberately, because there the coalescing behaviour IS what is under test.
+    [void]$api.Undo()
 
     # Visual bounds: every shape's VISUAL left edge should line up.
     [void]$api.SetBoundsModel('VisualBounds')
@@ -226,6 +234,104 @@ try {
     $flush = [Math]::Abs($cVisualLeft - $visualMode.A.Left) -le $tolerance
     Add-Result 'Visual mode aligns what you see' $flush `
         ("A.left={0:F1} C visual left={1:F1}" -f $visualMode.A.Left, $cVisualLeft)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 5: the match-size margin
+# =================================================================================================
+$f = New-Fixture
+try {
+    # A is 140x70, B is 90x110, C is 160x80. C is selected last, so it is the anchor.
+    $f.Slide.Shapes.Range(@('A', 'B', 'C')).Select($msoTrue)
+    [void]$api.SetSizeMargin('10')
+    [void]$api.SetSizeMarginMode('Uniform')
+    [void]$api.RunVerb('MatchBoth')
+
+    # A gap of 10 per side takes 20 off each dimension of the 160x80 anchor.
+    $a = $f.Slide.Shapes.Item('A')
+    $b = $f.Slide.Shapes.Item('B')
+    $uniform = ([Math]::Abs($a.Width - 140) -le $tolerance) -and ([Math]::Abs($a.Height - 60) -le $tolerance) -and
+               ([Math]::Abs($b.Width - 140) -le $tolerance) -and ([Math]::Abs($b.Height - 60) -le $tolerance)
+    Add-Result 'Uniform margin insets every side' $uniform `
+        ("A {0:F0}x{1:F0}, B {2:F0}x{3:F0}, expected 140x60" -f $a.Width, $a.Height, $b.Width, $b.Height)
+
+    # AlignPro's own undo, for the same reason as case 3.
+    [void]$api.Undo()
+
+    # Cascade: A is two steps back from the anchor, B one step.
+    $f.Slide.Shapes.Range(@('A', 'B', 'C')).Select($msoTrue)
+    [void]$api.SetSizeMarginMode('Cascade')
+    [void]$api.RunVerb('MatchBoth')
+
+    $a = $f.Slide.Shapes.Item('A')
+    $b = $f.Slide.Shapes.Item('B')
+    $c = $f.Slide.Shapes.Item('C')
+    $cascade = ([Math]::Abs($a.Width - 120) -le $tolerance) -and
+               ([Math]::Abs($b.Width - 140) -le $tolerance) -and
+               ([Math]::Abs($c.Width - 160) -le $tolerance)
+    Add-Result 'Cascade tiers along the selection' $cascade `
+        ("A {0:F0}, B {1:F0}, anchor C {2:F0}, expected 120/140/160" -f $a.Width, $b.Width, $c.Width)
+
+    [void]$api.SetSizeMarginMode('None')
+    [void]$api.SetSizeMargin('')
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 6: ordering, in place, and its undo
+# =================================================================================================
+$f = New-Fixture
+try {
+    # A fourth shape that is deliberately NOT selected, sitting between B and C in the stack.
+    $bar = $f.Slide.Shapes.AddShape($msoShapeRectangle, 400, 100, 40, 300)
+    $bar.Name = 'BAR'
+    # Created last, so it is frontmost; move it to sit directly behind C.
+    $bar.ZOrder($msoSendToBack)
+    $bar.ZOrder($msoBringForward)   # now above A
+    $bar.ZOrder($msoBringForward)   # now above B, still below C
+
+    $orderBefore = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name })
+    $barSlotBefore = [array]::IndexOf($orderBefore, 'BAR')
+
+    # Select A, then B, then C. A was clicked first, so A must end on top.
+    $f.Slide.Shapes.Item('A').Select($msoTrue)
+    $f.Slide.Shapes.Item('B').Select($msoFalse)
+    $f.Slide.Shapes.Item('C').Select($msoFalse)
+
+    $status = $api.RunOrder('StackFirstOnTop')
+    if ($status) { Add-Result 'Order runs' $false $status }
+
+    $orderAfter = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name })
+
+    # Top of the stack is the last entry in the collection.
+    Add-Result 'First selected ends on top' ($orderAfter[-1] -eq 'A') `
+        ("stack back-to-front: " + ($orderAfter -join ', '))
+
+    # The whole point of ordering in place: BAR must not have changed layer.
+    $barSlotAfter = [array]::IndexOf($orderAfter, 'BAR')
+    Add-Result 'Unselected shape keeps its layer' ($barSlotBefore -eq $barSlotAfter) `
+        ("BAR slot {0} -> {1}" -f $barSlotBefore, $barSlotAfter)
+
+    # Undo must put the original stacking back exactly.
+    [void]$api.Undo()
+    $orderUndone = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name })
+    Add-Result 'Undo restores the stacking order' `
+        (($orderUndone -join ',') -eq ($orderBefore -join ',')) `
+        ("{0}  ->  {1}" -f ($orderBefore -join ','), ($orderUndone -join ','))
+
+    # And redo must put it back again.
+    [void]$api.Redo()
+    $orderRedone = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name })
+    Add-Result 'Redo reapplies the stacking order' `
+        (($orderRedone -join ',') -eq ($orderAfter -join ',')) `
+        ("{0}  ->  {1}" -f ($orderAfter -join ','), ($orderRedone -join ','))
+
+    # A single shape has no order to speak of, so it should be refused rather than silently doing
+    # nothing.
+    $f.Slide.Shapes.Item('A').Select($msoTrue)
+    $refusal = $api.RunOrder('StackFirstOnTop')
+    Add-Result 'Order refuses a single shape' ($refusal -ne '') ("said: " + $refusal)
 }
 finally { Close-Fixture -Fixture $f }
 

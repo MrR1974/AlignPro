@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using AlignPro.Geometry;
+using Office = Microsoft.Office.Core;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace AlignPro.AddIn
@@ -106,6 +107,135 @@ namespace AlignPro.AddIn
                 Com.Release(slides);
                 Com.Release(presentation);
             }
+        }
+
+        /// <summary>
+        /// Restacks the slide into the given order, back to front.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <c>ZOrderPosition</c> is read-only, so the only lever PowerPoint offers is "bring this one
+        /// to the front". Applied to each shape in turn from the back of the target order forwards,
+        /// that lands on exactly the order asked for: every shape brought to the front lands above the
+        /// one before it, so after the last call the stack reads as the list does.
+        /// </para>
+        /// <para>
+        /// Shapes deleted since the snapshot are skipped. The survivors still end up in the right
+        /// order relative to one another, because their relative order in the target list is
+        /// unaffected by a missing entry.
+        /// </para>
+        /// </remarks>
+        public static ApplyOutcome ApplyOrder(
+            PowerPoint.Application app, int slideId, IReadOnlyList<ShapeKey> targetOrder)
+        {
+            if (targetOrder.Count == 0) return new ApplyOutcome(0, 0);
+
+            const int msoBringToFront = 0;
+
+            PowerPoint.Presentation? presentation = null;
+            PowerPoint.Slides? slides = null;
+            PowerPoint.Slide? slide = null;
+            PowerPoint.Shapes? shapes = null;
+
+            var applied = 0;
+            var missing = 0;
+
+            try
+            {
+                presentation = app.ActivePresentation;
+                slides = presentation.Slides;
+                slide = slides.FindBySlideID(slideId);
+                shapes = slide.Shapes;
+
+                // Index by id up front. Positions shift with every BringToFront, so the shape has to
+                // be fetched by identity each time rather than by a remembered index - but the set of
+                // ids on the slide does not change, so one pass to learn them is enough.
+                var present = new HashSet<int>();
+                for (var i = 1; i <= shapes.Count; i++)
+                {
+                    PowerPoint.Shape? shape = null;
+                    try
+                    {
+                        shape = shapes[i];
+                        present.Add(shape.Id);
+                    }
+                    finally
+                    {
+                        Com.Release(shape);
+                    }
+                }
+
+                foreach (var key in targetOrder)
+                {
+                    if (!present.Contains(key.ShapeId))
+                    {
+                        missing++;
+                        continue;
+                    }
+
+                    PowerPoint.Shape? shape = null;
+                    try
+                    {
+                        // Re-scanned per shape rather than indexed once: every BringToFront renumbers
+                        // the collection, so a remembered index would point at the wrong shape by the
+                        // second call. The Shapes collection has no by-id accessor to use instead.
+                        shape = FindById(shapes, key.ShapeId);
+                        if (shape == null)
+                        {
+                            missing++;
+                            continue;
+                        }
+
+                        shape.ZOrder((Office.MsoZOrderCmd)msoBringToFront);
+                        applied++;
+                    }
+                    catch (COMException)
+                    {
+                        // A locked shape should not abort the rest of the stack.
+                        missing++;
+                    }
+                    finally
+                    {
+                        Com.Release(shape);
+                    }
+                }
+
+                return new ApplyOutcome(applied, missing);
+            }
+            finally
+            {
+                Com.Release(shapes);
+                Com.Release(slide);
+                Com.Release(slides);
+                Com.Release(presentation);
+            }
+        }
+
+        /// <summary>
+        /// The shape with this id, or null when it is gone. Released by the caller.
+        /// </summary>
+        private static PowerPoint.Shape? FindById(PowerPoint.Shapes shapes, int id)
+        {
+            for (var i = 1; i <= shapes.Count; i++)
+            {
+                PowerPoint.Shape? shape = null;
+                try
+                {
+                    shape = shapes[i];
+                    if (shape.Id == id)
+                    {
+                        var found = shape;
+                        shape = null;   // hand ownership to the caller
+                        return found;
+                    }
+                }
+                finally
+                {
+                    Com.Release(shape);
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

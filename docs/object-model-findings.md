@@ -201,6 +201,45 @@ add-in actually runs in. So AlignPro keeps its own per-operation undo, and the r
 rather than Ctrl+Z.
 
 
+## Eighth experiment: Shape.ZOrder is *not* deferred in a ribbon callback
+
+Asked because of the seventh: `ExecuteMso("Undo")` is deferred while a command is executing, which
+silently broke Align left. Ordering is built entirely on `Shape.ZOrder`, so the same question had to
+be settled before trusting it — and the COM harness cannot answer it, for the reason that experiment
+gives.
+
+Measured by `tools/Test-RibbonClicks.ps1`, clicking the real button through UI Automation, against
+slide 7 of the sample deck.
+
+```text
+Clicking Stack puts the first selected on top   Card1=7 Card2=5 Card3=3  (higher is nearer the front)
+Unselected shapes keep their layer              BarA 4->4, BarB 6->6
+Clicking Reverse flips the stack                Card1=3 Card3=7
+Undo restores the previous stacking             Card1=7 Card3=3
+```
+
+**`Shape.ZOrder` applies synchronously from a ribbon callback**, like the `Left`/`Top` writes and
+unlike `ExecuteMso`. The distinction is between an object-model write, which is executed in place, and
+a *command*, which PowerPoint queues until the current command finishes.
+
+The second line is the one worth keeping: `BarA` and `BarB` were not selected and held z-positions 4
+and 6 throughout, so the restacking really does happen within the slots the selection already
+occupied. That is what separates this from Bring to front.
+
+`ZOrderPosition` is read-only, so an ordering is realised by calling `BringToFront` on each shape in
+turn from the back of the target list forwards. Applied to a complete ordering that lands exactly on
+it, and the previous ordering is then a complete instruction for undoing it.
+
+## Still open: probe 2 by hand
+
+Probe 2 measured selection order through `ShapeRange` with the shapes selected **programmatically**,
+and noted that the UI and the object model need not agree. That caveat is still open, and it now
+carries more weight: ordering is built entirely on selection order, and so is the match-size cascade.
+
+`Test-RibbonClicks.ps1` narrows it — it selects each shape in a separate `Select` call rather than as
+one `Range`, and the ordering came back in that order — but those are still object-model calls, not
+mouse clicks. **Click three shapes by hand and read the range back** before treating this as settled.
+
 ## Design implications
 
 **Probe 1 is the load-bearing one.** `Left/Top/Width/Height` is the *unrotated frame*, and the shape's

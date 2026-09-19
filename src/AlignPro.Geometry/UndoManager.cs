@@ -10,13 +10,15 @@ namespace AlignPro.Geometry
     /// </summary>
     public sealed class AlignTransaction
     {
-        public AlignTransaction(string label, IReadOnlyList<GeometryChange> changes)
+        public AlignTransaction(
+            string label, IReadOnlyList<GeometryChange> changes, ZOrderChange? order = null)
         {
             if (string.IsNullOrWhiteSpace(label)) throw new ArgumentException("A transaction needs a label.", nameof(label));
             if (changes is null) throw new ArgumentNullException(nameof(changes));
 
             Label = label;
             Changes = changes;
+            Order = order;
         }
 
         /// <summary>Shown in the UI, e.g. "Align left" or "Distribute horizontally".</summary>
@@ -24,22 +26,40 @@ namespace AlignPro.Geometry
 
         public IReadOnlyList<GeometryChange> Changes { get; }
 
+        /// <summary>
+        /// The stacking order this operation set, or null for the geometry verbs - which is all of
+        /// them bar ordering.
+        /// </summary>
+        /// <remarks>
+        /// Carried alongside the geometry rather than folded into a common "change" abstraction. No
+        /// operation produces both kinds at once, so a shared base type would buy nothing and cost a
+        /// rewrite of every existing change site.
+        /// </remarks>
+        public ZOrderChange? Order { get; }
+
         /// <summary>Changes that would actually move something.</summary>
         public IReadOnlyList<GeometryChange> EffectiveChanges =>
             Changes.Where(c => !c.IsNoOp).ToList();
 
-        /// <summary>True when nothing in the transaction would move, so it is not worth recording.</summary>
-        public bool IsEmpty => EffectiveChanges.Count == 0;
+        /// <summary>True when nothing in the transaction would change, so it is not worth recording.</summary>
+        public bool IsEmpty => EffectiveChanges.Count == 0 && (Order is null || Order.IsNoOp);
 
         /// <summary>The transaction running backwards, ready to apply.</summary>
         public AlignTransaction Inverted() =>
-            new AlignTransaction(Label, Changes.Select(c => c.Inverted()).ToList());
+            new AlignTransaction(Label, Changes.Select(c => c.Inverted()).ToList(), Order?.Inverted());
 
         /// <summary>Builds a transaction from a solve, dropping changes that would not move anything.</summary>
         public static AlignTransaction FromResult(string label, SolveResult result)
         {
             if (result is null) throw new ArgumentNullException(nameof(result));
             return new AlignTransaction(label, result.EffectiveChanges.ToList());
+        }
+
+        /// <summary>Builds a transaction that only restacks, changing no geometry.</summary>
+        public static AlignTransaction FromOrder(string label, ZOrderChange order)
+        {
+            if (order is null) throw new ArgumentNullException(nameof(order));
+            return new AlignTransaction(label, Array.Empty<GeometryChange>(), order);
         }
     }
 

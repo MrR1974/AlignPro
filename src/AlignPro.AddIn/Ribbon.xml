@@ -98,6 +98,45 @@
           <toggleButton id="tbResizeFromCentre" label="From centre" getImage="GetButtonImage"
                        getPressed="GetResizeFromCentre" onAction="OnResizeFromCentreChange"
                        screentip="Hold each shape's centre while resizing instead of its top-left corner" />
+          <!--
+            There is a second "Margin (pt)" box in grpTarget, for the slide inset. The two are
+            unrelated settings that happen to share a name, so each screentip says which is which -
+            the group heading above the box is what tells them apart at a glance.
+          -->
+          <editBox id="ebSizeMargin"
+                   label="Margin (pt)"
+                   sizeString="0000"
+                   getText="GetSizeMarginText"
+                   onChange="OnSizeMarginChange"
+                   screentip="How much smaller than the anchor each shape is, measured on each side"
+                   supertip="A margin of 10 leaves a 10pt border showing all round, so each dimension drops by 20. Negative numbers make the shapes larger instead. Turn From centre on for concentric rings. This is not the slide margin in the Align to group." />
+          <dropDown id="ddSizeMarginMode"
+                    label="Apply margin"
+                    sizeString="All the same"
+                    getSelectedItemIndex="GetSizeMarginModeIndex"
+                    onAction="OnSizeMarginModeChange"
+                    screentip="Whether the margin applies at all, and whether it accumulates"
+                    supertip="All the same puts every shape one margin inside the anchor. Cascade tiers them along the order you selected in, so the first shape you selected ends smallest.">
+            <item id="smOff" label="Off" />
+            <item id="smUniform" label="All the same" />
+            <item id="smCascade" label="Cascade" />
+          </dropDown>
+        </group>
+
+        <!--
+          Ordering reshuffles the selection within the z-positions it already occupies, so shapes that
+          were not selected keep the layer they were on. That is the difference from PowerPoint's own
+          Bring to front, which drags the whole selection over everything else.
+        -->
+        <group id="grpOrder" label="Order">
+          <button id="btnOrderStack" label="Stack" size="large"
+                  getImage="GetButtonImage" onAction="OnOrder"
+                  screentip="Stack the selection in the order you selected it"
+                  supertip="The first shape you selected ends on top and the last at the bottom. Shapes you did not select keep their own layer." />
+          <button id="btnOrderReverse" label="Reverse" size="large"
+                  getImage="GetButtonImage" onAction="OnOrder"
+                  screentip="Stack the selection in reverse selection order"
+                  supertip="The mirror image of Stack: the first shape you selected ends at the bottom." />
         </group>
 
         <group id="grpArrange" label="Arrange">

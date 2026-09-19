@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using AlignPro.Geometry;
@@ -53,13 +53,16 @@ namespace AlignPro.AddIn
         /// <summary>The current settings, for a harness to assert against.</summary>
         public string Describe() => string.Format(
             CultureInfo.InvariantCulture,
-            "reference={0} bounds={1} distributeMode={2} exactSpacing={3} margin={4} gridColumns={5}",
+            "reference={0} bounds={1} distributeMode={2} exactSpacing={3} margin={4} gridColumns={5} " +
+            "sizeMargin={6} sizeMarginMode={7}",
             Controller.Reference,
             Controller.Bounds,
             Controller.DistributeMode,
             Controller.ExactSpacing?.ToString(CultureInfo.InvariantCulture) ?? "none",
             Controller.Margin.ToString(CultureInfo.InvariantCulture),
-            Controller.GridColumns?.ToString(CultureInfo.InvariantCulture) ?? "auto");
+            Controller.GridColumns?.ToString(CultureInfo.InvariantCulture) ?? "auto",
+            Controller.SizeMargin.ToString(CultureInfo.InvariantCulture),
+            Controller.SizeMarginMode);
 
         /// <summary>
         /// Runs a verb against the current selection. Verb names match <see cref="AlignVerb"/>, e.g.
@@ -76,6 +79,38 @@ namespace AlignPro.AddIn
             // Returns the message whether the operation was refused or merely skipped something, so a
             // harness sees the same information the ribbon shows. Empty means a clean, silent success.
             var result = Controller.Run(parsed, verb);
+            return result.Message ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Reverses the last AlignPro operation, exactly as the ribbon's Undo button does.
+        /// </summary>
+        /// <remarks>
+        /// AlignPro keeps its own undo stack, so a harness cannot reach it through
+        /// <c>CommandBars.ExecuteMso("Undo")</c> - that drives PowerPoint's, which is a different
+        /// thing entirely and the reason the stack exists. Ordering has no geometry for native undo to
+        /// restore either, so without this there is no way to test that path from script at all.
+        /// </remarks>
+        /// <returns>Empty on success, otherwise why nothing happened.</returns>
+        public string Undo() => Controller.UndoLast().Message ?? string.Empty;
+
+        /// <summary>Reapplies the operation just undone, as the ribbon's Redo button does.</summary>
+        /// <returns>Empty on success, otherwise why nothing happened.</returns>
+        public string Redo() => Controller.RedoLast().Message ?? string.Empty;
+
+        /// <summary>
+        /// Restacks the current selection. Verb names match <see cref="OrderVerb"/>, i.e.
+        /// "StackFirstOnTop" or "StackFirstOnBottom".
+        /// </summary>
+        /// <returns>Empty on success, otherwise why nothing happened.</returns>
+        public string RunOrder(string verb)
+        {
+            if (!Enum.TryParse(verb, ignoreCase: true, result: out OrderVerb parsed))
+            {
+                return "Unknown order verb '" + verb + "'.";
+            }
+
+            var result = Controller.RunOrder(parsed, verb);
             return result.Message ?? string.Empty;
         }
 
@@ -130,6 +165,39 @@ namespace AlignPro.AddIn
             }
 
             Controller.ExactSpacing = value;
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Sets the match-size margin in points, measured per side. Negative grows the shapes. An
+        /// empty string clears it.
+        /// </summary>
+        public string SetSizeMargin(string points)
+        {
+            if (string.IsNullOrWhiteSpace(points))
+            {
+                Controller.SizeMargin = 0;
+                return string.Empty;
+            }
+
+            if (!double.TryParse(points, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            {
+                return "'" + points + "' is not a number.";
+            }
+
+            Controller.SizeMargin = value;
+            return string.Empty;
+        }
+
+        /// <summary>Sets how the margin applies. Names match <see cref="SizeMarginMode"/>.</summary>
+        public string SetSizeMarginMode(string mode)
+        {
+            if (!Enum.TryParse(mode, ignoreCase: true, result: out SizeMarginMode parsed))
+            {
+                return "Unknown size margin mode '" + mode + "'.";
+            }
+
+            Controller.SizeMarginMode = parsed;
             return string.Empty;
         }
 

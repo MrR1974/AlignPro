@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Globalization;
 using AlignPro.Geometry;
@@ -64,6 +65,14 @@ namespace AlignPro.AddIn
 
         public ResizeOrigin ResizeOrigin { get; set; } = ResizeOrigin.TopLeft;
 
+        /// <summary>
+        /// The match-size margin, measured per side in points. Negative grows the shapes instead.
+        /// </summary>
+        public double SizeMargin { get; set; }
+
+        /// <summary>Whether the match-size margin applies, and whether it cascades.</summary>
+        public SizeMarginMode SizeMarginMode { get; set; } = SizeMarginMode.None;
+
         /// <summary>Null means a near-square grid.</summary>
         public int? GridColumns { get; set; }
 
@@ -89,6 +98,8 @@ namespace AlignPro.AddIn
                 DistributeMode,
                 ResizeOrigin,
                 allowGroupResize: false,
+                sizeMargin: SizeMargin,
+                sizeMarginMode: SizeMarginMode,
                 gridColumns: GridColumns);
 
             foreach (var snapshot in selection.Shapes)
@@ -140,6 +151,56 @@ namespace AlignPro.AddIn
             return solved.Notable || outcome.Missing > 0
                 ? CommandResult.Note(note ?? "Part of the selection was skipped.")
                 : CommandResult.Ok(note);
+        }
+
+        /// <summary>
+        /// Restacks the selection. Parallel to <see cref="Run"/> rather than another verb inside it:
+        /// this changes no geometry, so it has nothing to say to the align solver.
+        /// </summary>
+        public CommandResult RunOrder(OrderVerb verb, string label)
+        {
+            var selection = SelectionReader.TryRead(_app, Margin, out var problem, includeSlideOrder: true);
+            if (selection == null) return CommandResult.Failed(problem ?? "Nothing to reorder.");
+
+            if (selection.SlideOrder == null)
+            {
+                return CommandResult.Failed("Could not read the slide's stacking order.");
+            }
+
+            var keys = new List<ShapeKey>(selection.Shapes.Count);
+            foreach (var snapshot in selection.Shapes) keys.Add(snapshot.Key);
+
+            var solved = ZOrderSolver.Solve(selection.SlideOrder, keys, verb);
+            if (!solved.Succeeded)
+            {
+                return CommandResult.Failed(string.Join(" ", solved.Diagnostics));
+            }
+
+            var transaction = AlignTransaction.FromOrder(label, solved.Change!);
+            if (transaction.IsEmpty)
+            {
+                return CommandResult.Note("Nothing to change - the shapes are already in that order.");
+            }
+
+            var outcome = ChangeApplier.ApplyOrder(_app, selection.SlideId, solved.Change!.NewOrder);
+            if (outcome.Applied == 0)
+            {
+                return CommandResult.Failed("None of the selected shapes could be restacked.");
+            }
+
+            if (_undoSlideId != selection.SlideId)
+            {
+                Undo.Clear();
+                _undoSlideId = selection.SlideId;
+            }
+            Undo.Push(transaction);
+            Diagnostics.Log(string.Format(
+                CultureInfo.InvariantCulture,
+                "Ran '{0}': restacked={1} missing={2} slideId={3} undoDepth={4}",
+                label, outcome.Applied, outcome.Missing, selection.SlideId, Undo.UndoDepth));
+
+            var skipped = Skipped(outcome);
+            return skipped == null ? CommandResult.Ok() : CommandResult.Note(skipped);
         }
 
         /// <summary>
@@ -203,17 +264,26 @@ namespace AlignPro.AddIn
         {
             if (!Undo.TryUndo(out var inverse)) return CommandResult.Failed("Nothing for AlignPro to undo.");
 
-            var outcome = ChangeApplier.Apply(_app, _undoSlideId, inverse.Changes);
-            return outcome.Applied == 0
-                ? CommandResult.Failed("The shapes from that operation are no longer on the slide.")
-                : CommandResult.Ok(Skipped(outcome));
+            return ApplyTransaction(inverse);
         }
 
         public CommandResult RedoLast()
         {
             if (!Undo.TryRedo(out var transaction)) return CommandResult.Failed("Nothing for AlignPro to redo.");
 
-            var outcome = ChangeApplier.Apply(_app, _undoSlideId, transaction.Changes);
+            return ApplyTransaction(transaction);
+        }
+
+        /// <summary>
+        /// Replays a transaction in whichever direction it was handed over. A transaction carries
+        /// geometry or an ordering, never both, so exactly one branch does the work.
+        /// </summary>
+        private CommandResult ApplyTransaction(AlignTransaction transaction)
+        {
+            var outcome = transaction.Order != null
+                ? ChangeApplier.ApplyOrder(_app, _undoSlideId, transaction.Order.NewOrder)
+                : ChangeApplier.Apply(_app, _undoSlideId, transaction.Changes);
+
             return outcome.Applied == 0
                 ? CommandResult.Failed("The shapes from that operation are no longer on the slide.")
                 : CommandResult.Ok(Skipped(outcome));

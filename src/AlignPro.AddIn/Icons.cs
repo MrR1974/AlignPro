@@ -63,6 +63,8 @@ namespace AlignPro.AddIn
                     "btnMatchBoth" => MatchBoth(16),
                     "tbResizeFromCentre" => ResizeFromCentre(16),
                     "btnGrid" => Grid(16),
+                    "btnOrderStack" => Stack(32, firstOnTop: true),
+                    "btnOrderReverse" => Stack(32, firstOnTop: false),
                     _ => null
                 };
 
@@ -259,6 +261,48 @@ namespace AlignPro.AddIn
                 // Both are centred on unit 8: the outer spans 1-15, the inner 5-11.
                 Outline(g, ink, u, 1, 1, 14, 14);
                 Fill(g, accent, u, 5, 5, 6, 6);
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>
+        /// Three overlapping cards, with the one the verb brings to the front picked out in the accent
+        /// colour. Reverse is the same pile with the accent on the card that ends up at the back.
+        /// </summary>
+        /// <remarks>
+        /// Each card is outlined in the background colour before being filled, so the one in front
+        /// keeps a clean edge against the one behind it. Without that the three merge into a single
+        /// stepped blob and the stacking - the entire meaning of the icon - disappears.
+        /// </remarks>
+        private static Bitmap Stack(int size, bool firstOnTop)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            using (var gap = new SolidBrush(Color.Transparent))
+            {
+                const int card = 6;
+
+                // Drawn back to front, each card four units up and left of the one behind it.
+                var offsets = new[] { 9, 5, 1 };
+
+                for (var i = 0; i < offsets.Length; i++)
+                {
+                    var isFront = i == offsets.Length - 1;
+                    var accented = firstOnTop ? isFront : i == 0;
+                    var at = offsets[i];
+
+                    // Clear one extra unit along the right and bottom edges only - the two sides the
+                    // card behind runs up against. Clearing all four would bite a notch out of that
+                    // card on the sides nothing covers, leaving it drawn as an L.
+                    g.CompositingMode = CompositingMode.SourceCopy;
+                    Fill(g, gap, u, at, at, card + 1, card + 1);
+                    g.CompositingMode = CompositingMode.SourceOver;
+
+                    Fill(g, accented ? accent : ink, u, at, at, card, card);
+                }
             }
 
             return bitmap;

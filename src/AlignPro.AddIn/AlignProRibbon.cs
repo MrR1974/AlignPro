@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
@@ -101,6 +101,18 @@ namespace AlignPro.AddIn
             Report(Controller.Run(verb, label), label);
         });
 
+        public void OnOrder(Office.IRibbonControl control) => Guard(() =>
+        {
+            var (verb, label) = control.Id switch
+            {
+                "btnOrderStack" => (OrderVerb.StackFirstOnTop, "Stack"),
+                "btnOrderReverse" => (OrderVerb.StackFirstOnBottom, "Reverse stack"),
+                _ => throw new ArgumentOutOfRangeException(nameof(control), control.Id, "Unknown order button.")
+            };
+
+            Report(Controller.RunOrder(verb, label), label);
+        });
+
         public void OnGrid(Office.IRibbonControl control) => Guard(() =>
             Report(Controller.Run(AlignVerb.GridArrange, "Arrange in grid"), "Arrange in grid"));
 
@@ -144,6 +156,13 @@ namespace AlignPro.AddIn
             BoundsModel.TextBounds
         };
 
+        private static readonly SizeMarginMode[] SizeMarginModes =
+        {
+            SizeMarginMode.None,
+            SizeMarginMode.Uniform,
+            SizeMarginMode.Cascade
+        };
+
         private static readonly DistributeMode[] DistributeModes =
         {
             DistributeMode.LeadingEdge,
@@ -170,6 +189,12 @@ namespace AlignPro.AddIn
         public void OnDistributeModeChange(Office.IRibbonControl control, string selectedId, int selectedIndex) =>
             Guard(() => Controller.DistributeMode = DistributeModes[selectedIndex]);
 
+        public int GetSizeMarginModeIndex(Office.IRibbonControl control) =>
+            Math.Max(0, Array.IndexOf(SizeMarginModes, Controller.SizeMarginMode));
+
+        public void OnSizeMarginModeChange(Office.IRibbonControl control, string selectedId, int selectedIndex) =>
+            Guard(() => Controller.SizeMarginMode = SizeMarginModes[selectedIndex]);
+
         // -- numeric boxes -----------------------------------------------------------------------
 
         public string GetSpacingText(Office.IRibbonControl control) =>
@@ -192,6 +217,32 @@ namespace AlignPro.AddIn
             else
             {
                 Warn($"'{text}' is not a number of points. Leave the box blank to even out the existing spacing.");
+            }
+
+            Invalidate();
+        });
+
+        public string GetSizeMarginText(Office.IRibbonControl control) =>
+            Controller.SizeMargin.ToString("0.##", CultureInfo.CurrentCulture);
+
+        public void OnSizeMarginChange(Office.IRibbonControl control, string text) => Guard(() =>
+        {
+            // Blank is the same as zero here - the mode dropdown is what turns the margin off, so an
+            // empty box should not need a separate meaning.
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Controller.SizeMargin = 0;
+                return;
+            }
+
+            // Negative is meaningful: it grows the shapes rather than shrinking them.
+            if (TryParsePoints(text, out var value))
+            {
+                Controller.SizeMargin = value;
+            }
+            else
+            {
+                Warn($"'{text}' is not a margin in points. Negative numbers make the shapes larger than the anchor.");
             }
 
             Invalidate();

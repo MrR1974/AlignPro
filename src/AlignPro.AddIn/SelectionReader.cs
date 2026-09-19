@@ -11,12 +11,17 @@ namespace AlignPro.AddIn
     internal sealed class SelectionSnapshot
     {
         public SelectionSnapshot(
-            IReadOnlyList<ShapeSnapshot> shapes, SlideMetrics slide, int slideId, ShapeKey? anchor)
+            IReadOnlyList<ShapeSnapshot> shapes,
+            SlideMetrics slide,
+            int slideId,
+            ShapeKey? anchor,
+            IReadOnlyList<ShapeKey>? slideOrder = null)
         {
             Shapes = shapes;
             Slide = slide;
             SlideId = slideId;
             Anchor = anchor;
+            SlideOrder = slideOrder;
         }
 
         public IReadOnlyList<ShapeSnapshot> Shapes { get; }
@@ -30,6 +35,13 @@ namespace AlignPro.AddIn
         /// so this is the shape the user selected last.
         /// </summary>
         public ShapeKey? Anchor { get; }
+
+        /// <summary>
+        /// Every top-level shape on the slide, back to front, or null when the caller did not ask for
+        /// it. Only the ordering verbs need it, and it costs a second pass over the slide, so align
+        /// and distribute do not pay for it.
+        /// </summary>
+        public IReadOnlyList<ShapeKey>? SlideOrder { get; }
     }
 
     /// <summary>
@@ -46,7 +58,11 @@ namespace AlignPro.AddIn
         /// Reads the current selection. Returns null and sets <paramref name="problem"/> when there is
         /// nothing usable selected - that is an ordinary outcome, not an error.
         /// </summary>
-        public static SelectionSnapshot? TryRead(PowerPoint.Application app, double margin, out string? problem)
+        public static SelectionSnapshot? TryRead(
+            PowerPoint.Application app,
+            double margin,
+            out string? problem,
+            bool includeSlideOrder = false)
         {
             problem = null;
 
@@ -120,7 +136,9 @@ namespace AlignPro.AddIn
                     }
                 }
 
-                return new SelectionSnapshot(shapes, metrics, slideId, anchor);
+                var slideOrder = includeSlideOrder ? ReadSlideOrder(slide, slideId) : null;
+
+                return new SelectionSnapshot(shapes, metrics, slideId, anchor, slideOrder);
             }
             finally
             {
@@ -129,6 +147,46 @@ namespace AlignPro.AddIn
                 Com.Release(range);
                 Com.Release(selection);
                 Com.Release(window);
+            }
+        }
+
+        /// <summary>
+        /// Every top-level shape on the slide, back to front. The <c>Shapes</c> collection is indexed
+        /// in z-order, so its position is the stacking order - no need to read <c>ZOrderPosition</c>
+        /// per shape, which would be a COM call each.
+        /// </summary>
+        /// <remarks>
+        /// Top-level only, deliberately. A shape inside a group is not in this collection, and its own
+        /// z-position is measured within the group rather than against the slide. The solver refuses
+        /// such a selection rather than silently restacking the wrong things.
+        /// </remarks>
+        private static IReadOnlyList<ShapeKey> ReadSlideOrder(PowerPoint.Slide slide, int slideId)
+        {
+            PowerPoint.Shapes? shapes = null;
+            try
+            {
+                shapes = slide.Shapes;
+                var order = new List<ShapeKey>(shapes.Count);
+
+                for (var i = 1; i <= shapes.Count; i++)
+                {
+                    PowerPoint.Shape? shape = null;
+                    try
+                    {
+                        shape = shapes[i];
+                        order.Add(new ShapeKey(slideId, shape.Id));
+                    }
+                    finally
+                    {
+                        Com.Release(shape);
+                    }
+                }
+
+                return order;
+            }
+            finally
+            {
+                Com.Release(shapes);
             }
         }
 

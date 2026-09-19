@@ -166,6 +166,35 @@ Groups are skipped, and AlignPro tells you why: resizing a group rescales the ga
 children, which silently distorts a diagram. A group makes a perfectly good *anchor*, though — it's
 only measured, never resized.
 
+**Margin (pt)** makes the shapes a set amount *smaller* than the anchor rather than the same size. It
+is measured **per side**, so a margin of 10 leaves a 10pt border showing all the way round and takes 20
+off each dimension. Negative numbers make the shapes larger instead. (This is the match-size margin —
+not the slide margin in **Align to**, which is a separate setting that happens to share the name.)
+
+**Apply margin** decides how far that goes:
+
+| Setting | What it does |
+|---|---|
+| **Off** | Ignore the margin and match the anchor exactly. |
+| **All the same** | Every shape ends one margin inside the anchor, so they all come out the same size. |
+| **Cascade** | The margin accumulates along the order you selected in, so the shapes tier — and the shape you selected **first** ends smallest. |
+
+For concentric rings, turn **From centre** on, use **Cascade**, and select the outermost shape last.
+Slide 9 of the sample deck walks through it.
+
+### Order
+
+**Stack** restacks the selection in the order you selected it: the shape you selected **first** ends on
+top, the one you selected last at the bottom. **Reverse** is the mirror image. Either replaces a run of
+Bring to front and Send to back with one click, for any number of shapes.
+
+The reordering happens **in place**. The selected shapes are redistributed across the layers they
+already occupied between them, so anything you did *not* select stays on exactly the layer it was on —
+unlike Bring to front, which hauls the whole selection over the top of everything else.
+
+Select the shapes that sit directly on the slide, not shapes inside a group: a grouped shape is
+stacked within its group rather than against the slide, so AlignPro refuses rather than guess.
+
 ### Arrange
 
 **Grid** tidies a scatter into even rows and columns, keeping each shape near where it already was.
@@ -179,7 +208,7 @@ Sizes are never changed, so it's safe on groups. Leave **Columns** blank for a n
 undo entry that can cover far more than your last action — in testing, one Ctrl+Z removed four slides.
 AlignPro's own Undo and Redo reverse exactly one operation at a time and say what they'll reverse.
 
-**The settings are sticky.** Reference, Measure, Space by and Exact (pt) persist until you change them,
+**The settings are sticky.** Reference, Measure, Space by, Exact (pt) and Margin (pt) persist until you change them,
 including across slides. If a result looks wrong, check those two dropdowns first — a `Reference` left
 on **Anchor** makes Grid lay out inside a single shape's bounds, which looks like the shapes have
 collapsed into a corner.
@@ -188,13 +217,14 @@ collapsed into a corner.
 
 ## Try it
 
-A ten-slide sample deck is **installed alongside the add-in**, at
+A thirteen-slide sample deck is **installed alongside the add-in**, at
 `%LOCALAPPDATA%\AlignPro\AlignPro-Sample.pptx`. It is also here in the repository at
 [`sample/AlignPro-Sample.pptx`](sample/AlignPro-Sample.pptx).
 
 One slide per capability, each captioned with what to try and what should happen. Slide 2 is the one
 to start with — align left with **Measure = Shape frame**, undo, then again with **Visual bounds**,
-and watch the rotated shape.
+and watch the rotated shape. Slides 7 to 9 cover ordering and the match-size margin, ending with a
+concentric-rings slide that uses both together.
 
 ---
 ## Building from source
