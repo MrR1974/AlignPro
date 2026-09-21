@@ -68,23 +68,27 @@ namespace AlignPro.Geometry
     /// </summary>
     /// <remarks>
     /// <para>
-    /// PowerPoint cannot do this for us. It has no <c>UndoRecord</c> equivalent,
-    /// <c>CommandBars.ExecuteMso</c> fails outright, and shape geometry changes made through the
-    /// object model do not appear to reach its undo stack at all - one measured Ctrl+Z after a batch
-    /// of object-model work removed an entire slide rather than undoing the last shape move. See
-    /// <c>docs/object-model-findings.md</c>.
+    /// This is a labelled journal, not a substitute for PowerPoint's undo. Object-model changes
+    /// <em>do</em> reach PowerPoint's undo stack; they are coalesced into one open entry, and the
+    /// add-in ends that entry per operation through <c>Application.StartNewUndoEntry</c>, so Ctrl+Z
+    /// reverses exactly one AlignPro command. See <c>docs/object-model-findings.md</c>.
     /// </para>
     /// <para>
-    /// That is also why the add-in intercepts Ctrl+Z: without it, the keystroke reaches past our
-    /// changes into the user's own earlier edits. Interception is conditional on
-    /// <see cref="CanUndo"/>, so when this stack is empty the keystroke passes through to PowerPoint
-    /// and normal editing is untouched.
+    /// What this adds over the native stack is a name. PowerPoint's Undo cannot say which operation
+    /// it is about to reverse, so the ribbon reads "Undo align left" and this journal is what knows
+    /// that. No keystroke is intercepted and no keyboard hook exists.
+    /// </para>
+    /// <para>
+    /// The two stacks are independent, and a native Ctrl+Z does not pop this one. That is survivable
+    /// rather than correct: <see cref="GeometryChange"/> holds absolute frames, so undoing here after
+    /// a native undo rewrites coordinates the shapes already occupy. The button's label and enabled
+    /// state can still be a step ahead of the document.
     /// </para>
     /// <para>
     /// Pure and Office-free: the journal decides <em>what</em> to change and hands back a transaction,
     /// but never touches PowerPoint. Applying is the add-in's job, which is also where a shape that
     /// has since been deleted gets skipped. Not thread-safe by design - it is only ever touched from
-    /// the UI thread, and the keyboard hook posts rather than calling in.
+    /// the UI thread.
     /// </para>
     /// </remarks>
     public sealed class UndoManager

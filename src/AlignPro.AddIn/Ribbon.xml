@@ -7,7 +7,8 @@
 <!--
   There is deliberately no <commands> repurposing here. Routing the built-in Undo to our own stack was
   implemented and measured: PowerPoint parses the markup and never invokes the callback, so it simply
-  does not work in this host. Undo is instead made correct at the source - see UndoBoundary.cs.
+  does not work in this host. It is also no longer needed. Undo is made correct at the source instead:
+  every operation opens its own native undo entry first - see UndoBoundary.cs.
 -->
 <customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" onLoad="OnRibbonLoad">
   <ribbon>
@@ -148,15 +149,15 @@
         </group>
 
         <!--
-          AlignPro's own undo. PowerPoint's native undo cannot be trusted after an object-model change
-          because its entry may cover an unbounded amount of earlier work, and the fix for that is not
-          usable from a ribbon callback (see UndoBoundary). So use these buttons, not Ctrl+Z.
+          AlignPro's own undo. Ctrl+Z is now safe too - UndoBoundary gives every operation its own
+          native undo entry - so these buttons are a labelled convenience rather than the only safe
+          route. The label names the operation, which PowerPoint's own Undo does not.
         -->
         <group id="grpUndo" label="AlignPro undo">
           <button id="btnUndo" getLabel="GetUndoLabel" size="large" imageMso="Undo"
                   getEnabled="GetUndoEnabled" onAction="OnUndo"
                   screentip="Reverse the last AlignPro operation"
-                  supertip="Use this rather than Ctrl+Z after an AlignPro command. PowerPoint's own undo may reverse far more than you expect." />
+                  supertip="Reverses one AlignPro operation and names it. Ctrl+Z does the same thing." />
           <button id="btnRedo" getLabel="GetRedoLabel" size="large" imageMso="Redo"
                   getEnabled="GetRedoEnabled" onAction="OnRedo"
                   screentip="Reapply the operation just undone" />

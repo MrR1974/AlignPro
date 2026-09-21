@@ -204,9 +204,11 @@ Sizes are never changed, so it's safe on groups. Leave **Columns** blank for a n
 
 ## Two things worth knowing
 
-**Use AlignPro's Undo button, not Ctrl+Z.** PowerPoint groups changes made by an add-in into a single
-undo entry that can cover far more than your last action — in testing, one Ctrl+Z removed four slides.
-AlignPro's own Undo and Redo reverse exactly one operation at a time and say what they'll reverse.
+**Ctrl+Z works, and so does the Undo button.** Each AlignPro operation gets its own undo entry, so
+Ctrl+Z, the Quick Access Toolbar and AlignPro's own Undo all reverse exactly one operation. The
+difference is only that AlignPro's Undo and Redo name the operation they'll reverse. (Before 1.2.0
+this was not true: an add-in's changes joined a single undo entry that could cover far more than your
+last action — in testing, one Ctrl+Z removed four slides. Upgrade if you are on an older version.)
 
 **The settings are sticky.** Reference, Measure, Space by, Exact (pt) and Margin (pt) persist until you change them,
 including across slides. If a result looks wrong, check those two dropdowns first — a `Reference` left

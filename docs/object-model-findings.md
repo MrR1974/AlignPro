@@ -119,10 +119,17 @@ pressed once.
 **Every slide disappeared.** The scripted deck creation and both ribbon operations were a single undo
 entry.
 
-That refines the rule. The coalescing group is not closed by user *interaction*; it is closed by a
-document *modification* that originates in the UI. The drag in experiment 2 was such a modification.
-Selecting shapes, changing a dropdown and clicking a ribbon button are not, so none of them broke the
-group, and the two operations joined an entry that had been open since the first scripted slide.
+That refines the rule — though the first wording of it here was wrong, and worth correcting rather
+than quietly fixing. It said the group is closed by "a document modification originating in the UI",
+and that clicking a ribbon button is not one. Native **Align left** is a ribbon button, and it *does*
+get its own undo entry: click it twice and the two undo one at a time.
+
+The real distinction is **PowerPoint's own command versus automation writes**. Every built-in command
+brackets its own undo entry — the dispatcher opens one, does the work in native code, closes it. A
+click on *our* button runs no command at all: PowerPoint invokes a callback into managed code, which
+then writes through the object model, indistinguishable from a macro. The drag in experiment 2 closed
+the group because it was a native operation taking its own entry, not because a human's hand was on
+the mouse. So our two operations joined an entry open since the first scripted slide.
 
 ### What this means for AlignPro
 
@@ -135,12 +142,15 @@ one Ctrl+Z discards all of it.
 - Where **object-model changes precede** ours — a macro, another add-in, our own scripts — the blast
   radius is unbounded. That is the case measured above, and it destroyed four slides.
 
-`UndoManager` is therefore load-bearing, not a convenience. Two ways of making native Ctrl+Z safe were
-then tried and neither survives contact with a ribbon click - see the fifth and seventh experiments.
+That made `UndoManager` load-bearing rather than a convenience, and three attempts follow below. The
+fifth and seventh failed; the **ninth succeeded**, and native Ctrl+Z is now safe — so the paragraphs
+between here and there describe the problem as it stood, not as it stands.
 
-**One limitation interception cannot fix.** We can claim the keystroke, but not PowerPoint's own Undo
-button on the ribbon or the Quick Access Toolbar — that is PowerPoint's own command, and clicking it
-still hits the coalesced entry. So interception narrows the hazard rather than removing it.
+Worth keeping for the reasoning: interception was considered and rejected, because claiming the
+keystroke cannot claim PowerPoint's own Undo button on the ribbon or the Quick Access Toolbar. Those
+are PowerPoint's own command and would still hit the coalesced entry, so interception could only ever
+narrow the hazard. Fixing the entry itself covers all three routes at once, which is what the ninth
+experiment does.
 
 ### Fifth experiment: repurposing does not work in PowerPoint
 
@@ -197,10 +207,10 @@ in flight, so it cannot reproduce a ribbon callback's context. All seven checks 
 passed while the add-in was visibly broken. `tools/Test-RibbonClicks.ps1` exists because of this, and
 clicks the real ribbon through UI Automation.
 
-**Where that leaves undo.** No mechanism tried makes PowerPoint's native undo safe after an
-object-model change: repurposing is ignored, and closing the group cannot be done from the context the
-add-in actually runs in. So AlignPro keeps its own per-operation undo, and the ribbon says to use it
-rather than Ctrl+Z.
+**Where that left undo, at the time.** Neither mechanism tried made native undo safe: repurposing is
+ignored, and the toggle-and-undo boundary cannot be established from the context the add-in runs in.
+That conclusion stood until the ninth experiment below, which reaches the same goal with a single
+object-model call and makes this whole line of attack unnecessary.
 
 
 ## Eighth experiment: Shape.ZOrder is *not* deferred in a ribbon callback
@@ -292,3 +302,65 @@ multi-line shapes.
 
 **Probe 6** confirms `PlaceholderBounds` is viable, and exposes `PlaceholderFormat.Type` so we can
 target the body placeholder specifically rather than the whole layout.
+
+
+## Ninth experiment: `StartNewUndoEntry` is the API this needed all along
+
+Prompted by a question the earlier write-up could not answer: if a ribbon click is not a boundary, why
+does native **Align left** followed by native **Align middle** undo one step at a time? It does, and
+the answer is above — built-in commands bracket their own entries. Stated that way the requirement was
+never "manufacture a UI modification", only "end the open automation entry" — and PowerPoint has a
+first-class method for exactly that, found by reflecting over the interop assembly the add-in already
+references:
+
+```text
+Microsoft.Office.Interop.PowerPoint._Application
+  void StartNewUndoEntry()      // dispid 2067, no arguments
+```
+
+It appears nowhere in the project's history. `UndoManager`'s remark that PowerPoint "has no
+`UndoRecord` equivalent" is what steered past it: true of the name, since Word and Excel spell it
+differently, and wrong in substance.
+
+Measured first over COM, with no ribbon involved:
+
+| What ran | One Ctrl+Z did |
+|---|---|
+| Plain OM write, no boundary | reverted it |
+| `StartNewUndoEntry()`, then a write | reverted it — the call does not cost undoability |
+| Boundary, write, boundary, write | **reverted only the second write; the first held** |
+
+Then through a real ribbon click, which is the context that broke the sixth experiment's approach.
+Both of PowerPoint's own undo routes were driven: its Undo button clicked through UI Automation, and
+the Ctrl+Z keystroke.
+
+```text
+clicked 'Align left':  Plain1 420 -> 330
+PowerPoint's own Undo button:  Plain1 back to 420   REVERTED
+Ctrl+Z keystroke:              Plain1 back to 420   REVERTED
+deck intact: 13 slides
+```
+
+**`StartNewUndoEntry` works from a ribbon callback**, where `ExecuteMso("Undo")` does not. That is the
+eighth experiment's distinction again, and it is the whole reason this succeeds where the sixth failed:
+an object-model *method* executes in place, a *command* is queued until the current one finishes.
+
+`ChangeApplier` now calls it before writing, in both the geometry and the restacking path. `Ctrl+Z`,
+the ribbon Undo button and the Quick Access Toolbar each reverse exactly one AlignPro operation, and
+`tools/Test-RibbonClicks.ps1` covers all of it.
+
+### A harness trap worth knowing about
+
+The first two runs of the new Ctrl+Z cases failed, and the product was fine. **Invoking a ribbon button
+through UI Automation leaves keyboard focus on that button, and a Ctrl+Z sent in that state never
+reaches the document.** It silently does nothing, which is indistinguishable from a broken undo —
+`Send-NativeUndo` sends `{ESC}` first, and without it the harness reports a failure that does not
+exist.
+
+Two other ways to lose an afternoon here, both hit while measuring this:
+
+- **Never click a verb on a selection it cannot change.** "Nothing to change" is a modal message box,
+  and a modal dialog blocks PowerPoint's UI thread, so every COM call afterwards hangs. Displace a
+  shape first so the verb has real work. The harness docstring already warned about this.
+- `CommandBars.ExecuteMso('Undo')` over COM was not the culprit when a probe hung, despite probe 4's
+  HRESULT failure making it the obvious suspect. The blocked UI thread from a dialog was.

@@ -262,19 +262,26 @@ Three design decisions that came out of measurement rather than preference:
 - **Match-size works in frame space** whatever bounds model is requested. Matching a rotated shape's
   visual width is ill-posed — at 90° it is driven entirely by the frame's height — and "make these the
   same size as that one" means frame size anyway.
-- **AlignPro keeps its own undo, because PowerPoint's cannot be trusted.** PowerPoint coalesces
-  object-model changes into [one undo entry and keeps it open until a modifying command arrives from
-  the UI](object-model-findings.md) — and a ribbon click is not one. So an AlignPro operation
-  joins whatever entry is already open, and one Ctrl+Z can discard an unbounded amount of earlier
-  work. Measured: two commands on a scripted deck, one Ctrl+Z, every slide gone. **Use the AlignPro
-  Undo button, not Ctrl+Z.**
+- **Every operation opens its own native undo entry.** PowerPoint's built-in commands each bracket
+  their own undo entry — which is why native Align left then Align middle undo one at a time — but
+  [object-model writes get no such bracket](object-model-findings.md) and accumulate into one open
+  entry. A click on AlignPro's button is not a PowerPoint command; it is a callback into managed code
+  that then writes through the object model. So operations used to join whatever entry was already
+  open, and one Ctrl+Z could discard an unbounded amount of earlier work. Measured: two commands on a
+  scripted deck, one Ctrl+Z, every slide gone.
 
-  Two fixes were tried and neither survives contact with a ribbon click. Repurposing the built-in
-  Undo: PowerPoint parses `<command idMso="Undo">` and never invokes the callback. Closing the
-  coalescing group ourselves (`UndoBoundary`): works from outside PowerPoint, but not from a ribbon
-  callback, because PowerPoint defers `ExecuteMso("Undo")` while a command is executing — so the
-  undo of our own formatting toggle landed *after* the geometry writes and reverted them, making the
-  button silently do nothing. `UndoBoundary` is kept, documented and unused.
+  `Application.StartNewUndoEntry` ends that entry, and `ChangeApplier` calls it before writing.
+  Ctrl+Z, the ribbon Undo button and the Quick Access Toolbar now each reverse exactly one AlignPro
+  operation. Two earlier attempts failed and are worth not repeating: repurposing the built-in Undo
+  (PowerPoint parses `<command idMso="Undo">` and never invokes the callback), and closing the group
+  with a formatting toggle plus `ExecuteMso("Undo")`, which works from outside PowerPoint but not
+  from a ribbon callback, because a *command* is deferred while another is executing. The distinction
+  that matters is that `StartNewUndoEntry` is an object-model *method*, so it executes in place.
+
+- **AlignPro still keeps its own undo, for the label.** PowerPoint's Undo cannot say which operation
+  it is about to reverse; the ribbon reads "Undo align left" because `UndoManager` knows. The two
+  stacks are independent and a native Ctrl+Z does not pop ours, so the button's label can be a step
+  ahead of the document. Harmless today — changes carry absolute frames — but it is the loose end.
 
 ## Status
 
@@ -285,16 +292,17 @@ Three design decisions that came out of measurement rather than preference:
 | 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
-| 3b. Undo coalescing | **Understood, not solved** — two fixes tried and reverted; AlignPro's own undo is the answer for now |
+| 3b. Undo coalescing | **Done** — `Application.StartNewUndoEntry` gives each operation its own native undo entry; verified by real ribbon clicks plus Ctrl+Z |
 | 3c. Automated end-to-end tests | **Done** — 161 unit tests, 13 COM checks, and 13 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
 
 ### Known limitations
 
-**PowerPoint's own undo is unsafe after an AlignPro command.** Use the AlignPro Undo button. Ctrl+Z
-and the Quick Access Toolbar reach PowerPoint's coalesced entry, which may cover far more than your
-last action — up to and including everything a script did to build the deck.
+**AlignPro's Undo button can be a step ahead of the document.** Ctrl+Z is safe as of 1.2.0 and
+reverses one AlignPro operation, but it does not pop AlignPro's own stack, so after a native undo the
+ribbon may still offer to undo what PowerPoint already reversed. Doing so is harmless — changes carry
+absolute frames, so it rewrites coordinates the shapes already occupy — but the label misleads.
 
 **Settings are sticky across slides, and that changes what a verb does.** Reference, Measure,
 Space by, Exact (pt) and Margin (pt) persist until you change them. A `Reference` left on **Anchor** makes Grid lay
