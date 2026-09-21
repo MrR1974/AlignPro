@@ -36,11 +36,10 @@ namespace AlignPro.AddIn
         {
             if (changes.Count == 0) return new ApplyOutcome(0, 0);
 
-            // UndoBoundary is deliberately NOT called here. It works when invoked from outside
-            // PowerPoint, but not from a ribbon callback: PowerPoint defers ExecuteMso("Undo") while a
-            // command is executing, so the undo of our own formatting toggle landed AFTER the writes
-            // below and reverted them - the operation silently did nothing. See UndoBoundary's remarks
-            // and docs/object-model-findings.md.
+            // Close PowerPoint's open undo entry first, so the writes below form one entry of their
+            // own rather than joining whatever automation has already accumulated. See UndoBoundary.
+            UndoBoundary.TryClose(app);
+
             PowerPoint.Presentation? presentation = null;
             PowerPoint.Slides? slides = null;
             PowerPoint.Slide? slide = null;
@@ -129,6 +128,9 @@ namespace AlignPro.AddIn
             PowerPoint.Application app, int slideId, IReadOnlyList<ShapeKey> targetOrder)
         {
             if (targetOrder.Count == 0) return new ApplyOutcome(0, 0);
+
+            // As in Apply: one native undo entry per AlignPro operation, restacking included.
+            UndoBoundary.TryClose(app);
 
             const int msoBringToFront = 0;
 

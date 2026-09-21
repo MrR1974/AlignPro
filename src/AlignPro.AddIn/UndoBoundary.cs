@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using Office = Microsoft.Office.Core;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace AlignPro.AddIn
@@ -10,45 +9,35 @@ namespace AlignPro.AddIn
     /// </summary>
     /// <remarks>
     /// <para>
-    /// PowerPoint coalesces object-model changes into a single undo entry and keeps that entry open
-    /// until a <em>modifying</em> command arrives from the UI. A ribbon click is not one. The measured
-    /// consequence is that an AlignPro operation joins whatever entry is already open - which can
-    /// reach back over an unbounded amount of earlier work - so one Ctrl+Z discards all of it. It
-    /// removed four slides during testing.
+    /// PowerPoint's built-in commands each bracket their own undo entry, which is why native Align
+    /// left followed by native Align middle undoes one step at a time. Object-model writes get no
+    /// such bracket: they accumulate into a single open entry until something ends it. A click on
+    /// <em>our</em> ribbon button is not a PowerPoint command - it is a callback into managed code
+    /// that then writes through the object model - so an AlignPro operation joins whatever entry is
+    /// already open, which can reach back over an unbounded amount of earlier work. One Ctrl+Z
+    /// discards all of it. It removed four slides during testing.
     /// </para>
     /// <para>
-    /// Repurposing the built-in Undo command would have been the tidy fix, but PowerPoint ignores
-    /// <c>customUI</c> command repurposing: the callback is never invoked. Instead we close the group
-    /// ourselves before writing anything, so PowerPoint's entry contains exactly one AlignPro
-    /// operation. Ctrl+Z, the ribbon Undo button and the Quick Access Toolbar button then all behave,
-    /// with no keyboard hook anywhere.
+    /// <see cref="PowerPoint._Application.StartNewUndoEntry"/> is PowerPoint's own answer to this: it
+    /// closes the open entry so that changes made next form their own. Call it before writing and
+    /// PowerPoint's entry contains exactly one AlignPro operation, so Ctrl+Z, the ribbon Undo button
+    /// and the Quick Access Toolbar button all behave, with no keyboard hook anywhere.
     /// </para>
     /// <para>
-    /// The mechanism is a formatting toggle followed by a real undo of that toggle. Only a modifying
-    /// command closes the group, and a real undo restores the previous formatting exactly - unlike a
-    /// second toggle, which is lossy when the selection's formatting is mixed. See
-    /// <c>docs/object-model-findings.md</c> and <c>tools/Probe-UndoGrouping.ps1</c>.
-    /// </para>
-    /// <para>
-    /// <strong>Currently unused, and it must stay that way until the timing problem below is solved.</strong>
-    /// This works when called from outside PowerPoint but NOT from inside a ribbon callback.
-    /// PowerPoint will not run an undo while a command is executing, so <c>ExecuteMso("Undo")</c> is
-    /// deferred: the toggle applies synchronously, our geometry is written, and only then does the
-    /// deferred undo run - reverting the geometry instead of the toggle. The visible symptom is a
-    /// ribbon button that silently does nothing, while driving the same code through the automation
-    /// surface works perfectly.
-    /// </para>
-    /// <para>
-    /// The untested idea for rescuing it is to post the whole operation and run it outside the ribbon
-    /// callback, so <c>ExecuteMso</c> executes in the same context it does from script. Any such
-    /// attempt has to be verified with a real ribbon click: the end-to-end harness drives through
-    /// cross-process COM, which is precisely the context that behaves differently.
+    /// Two earlier attempts failed and are worth not repeating. Repurposing the built-in Undo through
+    /// <c>customUI</c> is parsed and then ignored by PowerPoint - the callback is never invoked.
+    /// Closing the group with a formatting toggle followed by <c>ExecuteMso("Undo")</c> works from
+    /// outside PowerPoint but not from a ribbon callback, because PowerPoint defers a <em>command</em>
+    /// while another is executing, so that undo landed after the geometry writes and reverted them.
+    /// <c>StartNewUndoEntry</c> avoids both traps by being an object-model method rather than a
+    /// command: like the <c>Left</c>/<c>Top</c> writes and <c>Shape.ZOrder</c>, it executes in place.
+    /// See <c>docs/object-model-findings.md</c>.
     /// </para>
     /// </remarks>
     internal static class UndoBoundary
     {
         /// <summary>
-        /// Closes PowerPoint's undo coalescing group so that changes made next form their own entry.
+        /// Closes PowerPoint's open undo entry so that changes made next form their own.
         /// </summary>
         /// <returns>True when a boundary was established.</returns>
         /// <remarks>
@@ -59,31 +48,7 @@ namespace AlignPro.AddIn
         {
             try
             {
-                // Read the selection's italic state first. If it cannot be read, do not toggle at all:
-                // without a before-and-after comparison there is no safe way to know whether the
-                // toggle created an undo entry.
-                if (!TryReadItalic(app, out var before)) return false;
-
-                app.CommandBars.ExecuteMso("Italic");
-
-                if (!TryReadItalic(app, out var after))
-                {
-                    // The toggle may have landed but we cannot prove it. Issuing Undo here would risk
-                    // reverting the user's own work, so accept a stray italic instead - visible and
-                    // recoverable, rather than silent and destructive.
-                    Diagnostics.Log("UndoBoundary: state unreadable after toggle; leaving it alone.");
-                    return false;
-                }
-
-                if (after == before)
-                {
-                    // Nothing changed, so no undo entry was created. Undoing now would reach past us.
-                    Diagnostics.Log("UndoBoundary: toggle had no effect; no boundary established.");
-                    return false;
-                }
-
-                // Safe: our own toggle is demonstrably the newest entry, so this undoes exactly it.
-                app.CommandBars.ExecuteMso("Undo");
+                app.StartNewUndoEntry();
                 return true;
             }
             catch (COMException ex)
@@ -95,53 +60,6 @@ namespace AlignPro.AddIn
             {
                 Diagnostics.Log("UndoBoundary unexpected: " + ex.Message);
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// Reads the italic state of the whole selection. A mixed selection reports
-        /// <c>msoTriStateMixed</c>, which is what makes the before-and-after comparison work: toggling
-        /// a mixed selection moves it to a definite value, and that is a detectable change.
-        /// </summary>
-        private static bool TryReadItalic(PowerPoint.Application app, out Office.MsoTriState state)
-        {
-            state = Office.MsoTriState.msoTriStateMixed;
-
-            PowerPoint.DocumentWindow? window = null;
-            PowerPoint.Selection? selection = null;
-            PowerPoint.ShapeRange? range = null;
-            PowerPoint.TextFrame2? frame = null;
-            Office.TextRange2? text = null;
-            Office.Font2? font = null;
-
-            try
-            {
-                if (app.Windows.Count == 0) return false;
-
-                window = app.ActiveWindow;
-                selection = window.Selection;
-                if (selection.Type != PowerPoint.PpSelectionType.ppSelectionShapes) return false;
-
-                range = selection.ShapeRange;
-                frame = range.TextFrame2;
-                text = frame.TextRange;
-                font = text.Font;
-                state = font.Italic;
-                return true;
-            }
-            catch (COMException)
-            {
-                // Pictures, lines and some placeholders have no usable text formatting.
-                return false;
-            }
-            finally
-            {
-                Com.Release(font);
-                Com.Release(text);
-                Com.Release(frame);
-                Com.Release(range);
-                Com.Release(selection);
-                Com.Release(window);
             }
         }
     }

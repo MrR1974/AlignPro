@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Tests AlignPro by clicking its ribbon buttons for real, through UI Automation.
 
@@ -150,6 +150,40 @@ function Get-BlockingDialog {
     $text
 }
 
+<#
+    Presses Ctrl+Z as a person would, rather than clicking AlignPro's own Undo button.
+
+    This is the case UndoBoundary exists for. PowerPoint brackets each of its own commands in an undo
+    entry, but object-model writes accumulate into one open entry, so without a boundary a single
+    Ctrl+Z reverses every AlignPro operation since the last native edit - and any automation before
+    them. StartNewUndoEntry closes that entry, which should make native undo match the button.
+#>
+function Send-NativeUndo {
+    param($Window)
+
+    # AppActivate rather than the element's SetFocus: the top-level PowerPoint window reports
+    # "Target element cannot receive focus" through UI Automation, because focus belongs to the
+    # editing surface inside it.
+    $proc = Get-Process -Name 'POWERPNT' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $proc) { throw 'PowerPoint is not running.' }
+
+    $shell = New-Object -ComObject WScript.Shell
+    if (-not $shell.AppActivate($proc.Id)) {
+        Start-Sleep -Milliseconds 500
+        [void]$shell.AppActivate($proc.Id)
+    }
+    Start-Sleep -Milliseconds 500
+
+    # Esc first, and it is load-bearing. Invoking a ribbon button through UI Automation leaves
+    # keyboard focus on that button, and Ctrl+Z sent in that state never reaches the document - it
+    # silently does nothing, which reads exactly like a broken undo. Esc returns focus to the slide.
+    $shell.SendKeys('{ESC}')
+    Start-Sleep -Milliseconds 400
+    $shell.SendKeys('^z')
+    Start-Sleep -Milliseconds 1400
+    [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+}
+
 # --- COM side: setup and assertions ---------------------------------------------------------------
 Write-Host ''
 Write-Host 'Restarting PowerPoint with a pristine sample deck...' -ForegroundColor DarkGray
@@ -240,6 +274,39 @@ $undoneLefts = Get-Lefts -Slide 2 -Names $slide2
 $leftsBack = @($slide2 | Where-Object { [Math]::Abs($undoneLefts[$_] - $before[$_]) -le $tolerance }).Count
 Add-Result 'A second Undo reverses the first operation' ($leftsBack -eq $slide2.Count) `
     "$leftsBack of $($slide2.Count) back where they started"
+
+# =================================================================================================
+# Native Ctrl+Z - must reverse one AlignPro operation, exactly as the Undo button does
+# =================================================================================================
+$nativeStart = Get-Lefts -Slide 2 -Names $slide2
+Select-Shapes -Slide 2 -Names $slide2
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Left'
+$nativeLefts = Get-Lefts -Slide 2 -Names $slide2
+Select-Shapes -Slide 2 -Names $slide2
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Top'
+$nativeTops = Get-Tops -Slide 2 -Names $slide2
+
+Send-NativeUndo -Window $window
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Ctrl+Z raises no dialog' $false $dialog } else { Add-Result 'Ctrl+Z raises no dialog' $true '' }
+
+$ctrlZTops = Get-Tops -Slide 2 -Names $slide2
+$ctrlZLefts = Get-Lefts -Slide 2 -Names $slide2
+$topsReverted = @($slide2 | Where-Object { [Math]::Abs($ctrlZTops[$_] - $nativeTops[$_]) -gt $tolerance }).Count
+$leftsSurvived = @($slide2 | Where-Object { [Math]::Abs($ctrlZLefts[$_] - $nativeLefts[$_]) -le $tolerance }).Count
+Add-Result 'Ctrl+Z reverses only the last operation' (($topsReverted -gt 0) -and ($leftsSurvived -eq $slide2.Count)) `
+    "$topsReverted moved back vertically, $leftsSurvived of $($slide2.Count) kept their align-left"
+
+Send-NativeUndo -Window $window
+$secondLefts = Get-Lefts -Slide 2 -Names $slide2
+$leftsReverted = @($slide2 | Where-Object { [Math]::Abs($secondLefts[$_] - $nativeStart[$_]) -le $tolerance }).Count
+Add-Result 'A second Ctrl+Z reverses the first operation' ($leftsReverted -eq $slide2.Count) `
+    "$leftsReverted of $($slide2.Count) back where they started"
+
+# The deck itself must survive. Before StartNewUndoEntry, the scripted deck build shared one undo
+# entry with the AlignPro operations, and a single Ctrl+Z emptied the presentation.
+$slideCount = $presentation.Slides.Count
+Add-Result 'Ctrl+Z leaves the deck intact' ($slideCount -ge 12) "$slideCount slides still present"
 
 # =================================================================================================
 # Distribute and Grid, clicked - the other two verbs with their own code paths
