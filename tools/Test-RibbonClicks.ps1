@@ -15,7 +15,7 @@
 
     What it cannot do is replace the other harness. Clicking is slow and depends on UI structure, so
     this covers the handful of paths where the calling context matters, and the geometry stays covered
-    by the 136 unit tests and the COM harness.
+    by the unit tests and the COM harness.
 
     Deliberately avoids operations that raise a message box: a modal dialog blocks PowerPoint's UI
     thread and would hang the run. Those paths are covered through the automation surface instead.
@@ -306,7 +306,7 @@ Add-Result 'A second Ctrl+Z reverses the first operation' ($leftsReverted -eq $s
 # The deck itself must survive. Before StartNewUndoEntry, the scripted deck build shared one undo
 # entry with the AlignPro operations, and a single Ctrl+Z emptied the presentation.
 $slideCount = $presentation.Slides.Count
-Add-Result 'Ctrl+Z leaves the deck intact' ($slideCount -ge 12) "$slideCount slides still present"
+Add-Result 'Ctrl+Z leaves the deck intact' ($slideCount -ge 17) "$slideCount slides still present"
 
 # =================================================================================================
 # Distribute and Grid, clicked - the other two verbs with their own code paths
@@ -319,11 +319,11 @@ $distAfter = Get-Lefts -Slide 4 -Names $slide4
 $distMoved = @($slide4 | Where-Object { [Math]::Abs($distBefore[$_] - $distAfter[$_]) -gt $tolerance }).Count
 Add-Result 'Clicking Distribute moves shapes' ($distMoved -gt 0) "$distMoved of $($slide4.Count) shapes moved"
 
-# Slide 12 in the sample deck: the Grid slide, after the three added for ordering and margins.
+# Slide 13 in the sample deck: the Grid slide.
 $gridShapes = 0..8 | ForEach-Object { "Dot$_" }
-Select-Shapes -Slide 12 -Names $gridShapes
+Select-Shapes -Slide 13 -Names $gridShapes
 $clicked = Invoke-RibbonButton -Window $window -Pattern 'Grid'
-$gridLefts = Get-Lefts -Slide 12 -Names $gridShapes
+$gridLefts = Get-Lefts -Slide 13 -Names $gridShapes
 $columns = @($gridLefts.Values | ForEach-Object { [Math]::Round($_, 0) } | Sort-Object -Unique).Count
 Add-Result 'Clicking Grid forms three columns' ($columns -eq 3) "$columns distinct columns"
 
@@ -384,6 +384,66 @@ $clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
 $u1 = Get-ZOrder -Slide $orderSlide -Name 'Card1'
 $u3 = Get-ZOrder -Slide $orderSlide -Name 'Card3'
 Add-Result 'Undo restores the previous stacking' ($u1 -gt $u3) "Card1=$u1 Card3=$u3"
+
+# =================================================================================================
+# The 1.3 verbs, clicked. Settings go through COM - dropdowns and edit boxes are not what is under
+# test - and the button that runs the verb is clicked for real.
+# =================================================================================================
+function Get-Shape { param([int] $Slide, [string] $Name) $presentation.Slides.Item($Slide).Shapes.Item($Name) }
+
+# Slide 10: Grow with Cascade. CORE is 120x80; 1st is two steps of 12 out, 2nd one step.
+[void]$api.SetSizeMargin('12')
+[void]$api.SetSizeDirection('Grow')
+[void]$api.SetSizeMarginMode('Cascade')
+Select-ShapesInOrder -Slide 10 -Names @('Grow1', 'Grow2', 'Grow3', 'Core')
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Both'
+$g1 = Get-Shape 10 'Grow1'; $g3 = Get-Shape 10 'Grow3'
+Add-Result 'Clicking Both with Grow grows the first selected most' `
+    (([Math]::Abs($g1.Width - 192) -le $tolerance) -and ([Math]::Abs($g3.Width - 144) -le $tolerance)) `
+    ("1st {0:F0} wide, 3rd {1:F0}, expected 192 and 144" -f $g1.Width, $g3.Width)
+[void]$api.SetSizeDirection('Shrink')
+[void]$api.SetSizeMarginMode('None')
+[void]$api.SetSizeMargin('')
+
+# Slide 15: Match rotation, then Ctrl+Z.
+Select-ShapesInOrder -Slide 15 -Names @('Tilt1', 'Tilt2', 'Tilt3', 'Level')
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Rotation'
+$angles = @('Tilt1', 'Tilt2', 'Tilt3') | ForEach-Object { [double](Get-Shape 15 $_).Rotation }
+Add-Result 'Clicking Rotation turns every shape to the anchor' `
+    (@($angles | Where-Object { [Math]::Abs($_ - 20) -le 0.1 }).Count -eq 3) ("angles: " + ($angles -join ', '))
+Send-NativeUndo -Window $window
+Add-Result 'Ctrl+Z restores the angles' ([Math]::Abs((Get-Shape 15 'Tilt1').Rotation - 12) -le 0.1) `
+    ("Tilt1 back to {0:F1}, was 12" -f (Get-Shape 15 'Tilt1').Rotation)
+
+# Slide 16: Duplicate round the slide centre, then Ctrl+Z.
+$dupSlide = $presentation.Slides.Item(16)
+$countBefore = $dupSlide.Shapes.Count
+[void]$api.SetDuplicate(0, 0, 30, 11, 'SlideCentre')
+[void]$api.SetRotateShapes($true)
+Select-ShapesInOrder -Slide 16 -Names @('Seed')
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Duplicate'
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Duplicate raises no dialog' $false $dialog }
+Add-Result 'Clicking Duplicate makes eleven copies' ($dupSlide.Shapes.Count -eq $countBefore + 11) `
+    ("{0} shapes, expected {1}" -f $dupSlide.Shapes.Count, ($countBefore + 11))
+$selected = $ppt.ActiveWindow.Selection.ShapeRange.Count
+Add-Result 'The original and copies are left selected' ($selected -eq 12) "$selected selected"
+Send-NativeUndo -Window $window
+Add-Result 'Ctrl+Z removes every copy and nothing else' `
+    (($dupSlide.Shapes.Count -eq $countBefore) -and ($presentation.Slides.Count -ge 17)) `
+    ("{0} shapes, {1} slides" -f $dupSlide.Shapes.Count, $presentation.Slides.Count)
+
+# Slide 17: round the ring. RING is 240x240 at (70, 120), so twelve o'clock is (190, 120).
+Select-ShapesInOrder -Slide 17 -Names @('Bead1', 'Bead2', 'Bead3', 'Bead4', 'Ring')
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Along curve'
+$b1 = Get-Shape 17 'Bead1'; $b2 = Get-Shape 17 'Bead2'
+$ok = ([Math]::Abs($b1.Left + 15 - 190) -le $tolerance) -and ([Math]::Abs($b1.Top + 15 - 120) -le $tolerance) -and
+      ([Math]::Abs($b2.Left + 15 - 310) -le $tolerance) -and ([Math]::Abs($b2.Rotation - 90) -le 0.6)
+Add-Result 'Clicking Along curve rings the beads' $ok `
+    ("Bead1 centre ({0:F1},{1:F1}), Bead2 ({2:F1},{3:F1}) rot {4:F1}" -f ($b1.Left + 15), ($b1.Top + 15), ($b2.Left + 15), ($b2.Top + 15), $b2.Rotation)
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
+Add-Result 'Undo takes the beads back' ([Math]::Abs((Get-Shape 17 'Bead2').Rotation) -le 0.1) `
+    ("Bead2 rotation {0:F1}" -f (Get-Shape 17 'Bead2').Rotation)
 
 # =================================================================================================
 Write-Host ''

@@ -48,7 +48,7 @@
                    screentip="Inset used by the Slide margins reference" />
         </group>
 
-        <group id="grpAlign" label="Align">
+        <group id="grpAlign" label="Align" autoScale="true">
           <button id="btnAlignLeft" label="Left" size="large"
                   getImage="GetButtonImage" onAction="OnAlign" />
           <button id="btnAlignCentreH" label="Centre" size="large"
@@ -63,65 +63,105 @@
                   getImage="GetButtonImage" onAction="OnAlign" />
         </group>
 
+        <!--
+          Two columns: the three verbs on the left, the settings they share on the right. Each column
+          is a vertical box, so the layout holds whatever Office does to the group's width.
+        -->
         <group id="grpDistribute" label="Distribute">
-          <dropDown id="ddDistributeMode"
-                    label="Space by"
-                    sizeString="Trailing edges"
-                    getSelectedItemIndex="GetDistributeModeIndex"
-                    onAction="OnDistributeModeChange"
-                    screentip="Which feature of each shape gets spaced evenly"
-                    supertip="All four agree when the shapes are the same size, and diverge as soon as they differ.">
-            <item id="dmLeading" label="Leading edges" />
-            <item id="dmCentre" label="Centres" />
-            <item id="dmTrailing" label="Trailing edges" />
-            <item id="dmGap" label="Space between" />
-          </dropDown>
-          <editBox id="ebSpacing"
-                   label="Exact (pt)"
-                   sizeString="0000"
-                   getText="GetSpacingText"
-                   onChange="OnSpacingChange"
-                   screentip="Exact spacing in points; leave blank to even out what is already there"
-                   supertip="In the three edge and centre modes this is the pitch. In Space between it is the gap." />
-          <button id="btnDistributeH" label="Horizontally" size="large"
-                  getImage="GetButtonImage" onAction="OnDistribute" />
-          <button id="btnDistributeV" label="Vertically" size="large"
-                  getImage="GetButtonImage" onAction="OnDistribute" />
+          <box id="boxDistributeVerbs" boxStyle="vertical">
+            <button id="btnDistributeH" label="Horizontally"
+                    getImage="GetButtonImage" onAction="OnDistribute" />
+            <button id="btnDistributeV" label="Vertically"
+                    getImage="GetButtonImage" onAction="OnDistribute" />
+            <!--
+              The curve is the anchor, so this reads Reference as always Anchor, whatever the dropdown
+              says - the same way the Match buttons do. It shares Exact (pt) with the buttons beside it, and
+              Rotate shapes with Duplicate.
+            -->
+            <button id="btnDistributeCurve" label="Along curve"
+                    getImage="GetButtonImage" onAction="OnDistributeCurve"
+                    screentip="Place the shapes along the curve you selected last"
+                    supertip="Select the shapes, then Ctrl+click an oval, an arc, a line or a freeform last. Round an oval they go at even spacing from twelve o'clock clockwise; along an arc or path they run end to end. Exact (pt) sets the distance between centres along the curve. Rotate shapes, in the Duplicate group, turns each one to follow the curve." />
+          </box>
+          <box id="boxDistributeSettings" boxStyle="vertical">
+            <dropDown id="ddDistributeMode"
+                      label="Space by"
+                      sizeString="Trailing edges"
+                      getSelectedItemIndex="GetDistributeModeIndex"
+                      onAction="OnDistributeModeChange"
+                      screentip="Which feature of each shape gets spaced evenly"
+                      supertip="All four agree when the shapes are the same size, and diverge as soon as they differ.">
+              <item id="dmLeading" label="Leading edges" />
+              <item id="dmCentre" label="Centres" />
+              <item id="dmTrailing" label="Trailing edges" />
+              <item id="dmGap" label="Space between" />
+            </dropDown>
+            <editBox id="ebSpacing"
+                     label="Exact (pt)"
+                     sizeString="0000"
+                     getText="GetSpacingText"
+                     onChange="OnSpacingChange"
+                     screentip="Exact spacing in points; leave blank to even out what is already there"
+                     supertip="In the three edge and centre modes this is the pitch. In Space between it is the gap." />
+          </box>
         </group>
 
-        <group id="grpSize" label="Match size">
-          <button id="btnMatchWidth" label="Width" getImage="GetButtonImage" onAction="OnMatchSize"
-                  screentip="Match every shape's width to the anchor" />
-          <button id="btnMatchHeight" label="Height" getImage="GetButtonImage" onAction="OnMatchSize"
-                  screentip="Match every shape's height to the anchor" />
-          <button id="btnMatchBoth" label="Both" getImage="GetButtonImage" onAction="OnMatchSize"
-                  screentip="Match width and height to the anchor" />
-          <toggleButton id="tbResizeFromCentre" label="From centre" getImage="GetButtonImage"
-                       getPressed="GetResizeFromCentre" onAction="OnResizeFromCentreChange"
-                       screentip="Hold each shape's centre while resizing instead of its top-left corner" />
-          <!--
-            There is a second "Margin (pt)" box in grpTarget, for the slide inset. The two are
-            unrelated settings that happen to share a name, so each screentip says which is which -
-            the group heading above the box is what tells them apart at a glance.
-          -->
-          <editBox id="ebSizeMargin"
-                   label="Margin (pt)"
-                   sizeString="0000"
-                   getText="GetSizeMarginText"
-                   onChange="OnSizeMarginChange"
-                   screentip="How much smaller than the anchor each shape is, measured on each side"
-                   supertip="A margin of 10 leaves a 10pt border showing all round, so each dimension drops by 20. Negative numbers make the shapes larger instead. Turn From centre on for concentric rings. This is not the slide margin in the Align to group." />
-          <dropDown id="ddSizeMarginMode"
-                    label="Apply margin"
-                    sizeString="All the same"
-                    getSelectedItemIndex="GetSizeMarginModeIndex"
-                    onAction="OnSizeMarginModeChange"
-                    screentip="Whether the margin applies at all, and whether it accumulates"
-                    supertip="All the same puts every shape one margin inside the anchor. Cascade tiers them along the order you selected in, so the first shape you selected ends smallest.">
-            <item id="smOff" label="Off" />
-            <item id="smUniform" label="All the same" />
-            <item id="smCascade" label="Cascade" />
-          </dropDown>
+        <!--
+          Three columns, each a vertical box so the stacking is fixed: the match buttons, then the
+          toggles with Direction beneath them, then the margin itself above how it applies.
+        -->
+        <group id="grpSize" label="Match">
+          <box id="boxSizeMatch" boxStyle="vertical">
+            <button id="btnMatchWidth" label="Width" getImage="GetButtonImage" onAction="OnMatchSize"
+                    screentip="Match every shape's width to the anchor" />
+            <button id="btnMatchHeight" label="Height" getImage="GetButtonImage" onAction="OnMatchSize"
+                    screentip="Match every shape's height to the anchor" />
+            <button id="btnMatchBoth" label="Both" getImage="GetButtonImage" onAction="OnMatchSize"
+                    screentip="Match width and height to the anchor" />
+          </box>
+          <box id="boxSizeOptions" boxStyle="vertical">
+            <button id="btnMatchRotation" label="Rotation" getImage="GetButtonImage" onAction="OnMatchSize"
+                    screentip="Turn every shape to the anchor's angle"
+                    supertip="The angle only: flips are left as they are, and each shape turns about its own centre. Works on groups, because turning a group does not change the spacing inside it." />
+            <toggleButton id="tbResizeFromCentre" label="From centre" getImage="GetButtonImage"
+                         getPressed="GetResizeFromCentre" onAction="OnResizeFromCentreChange"
+                         screentip="Hold each shape's centre while resizing instead of its top-left corner" />
+            <dropDown id="ddSizeDirection"
+                      label="Direction"
+                      sizeString="Shrink"
+                      getSelectedItemIndex="GetSizeDirectionIndex"
+                      onAction="OnSizeDirectionChange"
+                      screentip="Whether the margin makes the shapes smaller or larger than the anchor"
+                      supertip="Shrink puts each shape inside the anchor, Grow puts it outside. With Cascade and Grow the shape you selected first ends largest, the mirror of Shrink.">
+              <item id="sdShrink" label="Shrink" />
+              <item id="sdGrow" label="Grow" />
+            </dropDown>
+          </box>
+          <box id="boxSizeMargin" boxStyle="vertical">
+            <!--
+              There is a second "Margin (pt)" box in grpTarget, for the slide inset. The two are
+              unrelated settings that happen to share a name, so each screentip says which is which -
+              the group heading above the box is what tells them apart at a glance.
+            -->
+            <editBox id="ebSizeMargin"
+                     label="Margin (pt)"
+                     sizeString="0000"
+                     getText="GetSizeMarginText"
+                     onChange="OnSizeMarginChange"
+                     screentip="How far each shape sits inside or outside the anchor, measured on each side"
+                     supertip="A margin of 10 leaves a 10pt border all round, so each dimension changes by 20. Always a positive number: Direction decides whether the shapes shrink inside the anchor or grow past it. Turn From centre on for concentric rings. This is not the slide margin in the Align to group." />
+            <dropDown id="ddSizeMarginMode"
+                      label="Apply margin"
+                      sizeString="All the same"
+                      getSelectedItemIndex="GetSizeMarginModeIndex"
+                      onAction="OnSizeMarginModeChange"
+                      screentip="Whether the margin applies at all, and whether it accumulates"
+                      supertip="All the same puts every shape one margin from the anchor. Cascade tiers them along the order you selected in: with Shrink the first shape you selected ends smallest, with Grow it ends largest.">
+              <item id="smOff" label="Off" />
+              <item id="smUniform" label="All the same" />
+              <item id="smCascade" label="Cascade" />
+            </dropDown>
+          </box>
         </group>
 
         <!--
@@ -129,7 +169,7 @@
           were not selected keep the layer they were on. That is the difference from PowerPoint's own
           Bring to front, which drags the whole selection over everything else.
         -->
-        <group id="grpOrder" label="Order">
+        <group id="grpOrder" label="Order" autoScale="true">
           <button id="btnOrderStack" label="Stack" size="large"
                   getImage="GetButtonImage" onAction="OnOrder"
                   screentip="Stack the selection in the order you selected it"
@@ -149,11 +189,64 @@
         </group>
 
         <!--
+          One step is "turn by Angle about the pivot, then move by X and Y"; copy k gets that step k
+          times. So X alone makes a row, Angle about a far pivot a ring, and both together a spiral.
+        -->
+        <group id="grpDuplicate" label="Duplicate" autoScale="true">
+          <box id="boxDupStep" boxStyle="vertical">
+            <editBox id="ebDupX" label="X (pt)" sizeString="0000"
+                     getText="GetDuplicateText" onChange="OnDuplicateTextChange"
+                     screentip="How far each copy moves right of the one before; negative moves left" />
+            <editBox id="ebDupY" label="Y (pt)" sizeString="0000"
+                     getText="GetDuplicateText" onChange="OnDuplicateTextChange"
+                     screentip="How far each copy moves down from the one before; negative moves up" />
+            <editBox id="ebDupAngle" label="Angle" sizeString="0000"
+                     getText="GetDuplicateText" onChange="OnDuplicateTextChange"
+                     screentip="How far each copy turns from the one before, in degrees clockwise"
+                     supertip="The turn happens about the Pivot, before the X and Y move. 0 turns nothing." />
+          </box>
+          <!--
+            Blank space between the step and the options. The label is Braille blanks (U+2800): they
+            draw nothing but are not whitespace, so Office keeps the label and its width. A label of
+            non-breaking or figure spaces is left out of the ribbon altogether, a disabled
+            spacer button still draws a grey square, and a separator adds a line.
+          -->
+          <box id="boxDupGap" boxStyle="vertical">
+            <labelControl id="lblDupGap" label="&#x2800;" />
+          </box>
+          <box id="boxDupOptions" boxStyle="vertical">
+            <editBox id="ebDupCopies" label="Copies" sizeString="0000"
+                     getText="GetDuplicateText" onChange="OnDuplicateTextChange"
+                     screentip="How many copies to make" />
+            <dropDown id="ddDupPivot"
+                      label="Pivot"
+                      sizeString="Selection centre"
+                      getSelectedItemIndex="GetDuplicatePivotIndex"
+                      onAction="OnDuplicatePivotChange"
+                      screentip="The point each copy turns about"
+                      supertip="Own centre spins each shape in place. Selection centre turns the whole selection as one piece. Anchor centre turns about the shape you selected last, and Slide centre about the middle of the slide.">
+              <item id="pvOwn" label="Own centre" />
+              <item id="pvSelection" label="Selection centre" />
+              <item id="pvAnchor" label="Anchor centre" />
+              <item id="pvSlide" label="Slide centre" />
+            </dropDown>
+            <toggleButton id="tbRotateShapes" label="Rotate shapes" getImage="GetButtonImage"
+                          getPressed="GetRotateShapes" onAction="OnRotateShapesChange"
+                          screentip="Turn shapes as well as moving them"
+                          supertip="On, each copy turns with the step, and Distribute along curve turns each shape to follow the curve. Off, shapes keep their angle and only their positions change." />
+          </box>
+          <button id="btnDuplicate" label="Duplicate" size="large"
+                  getImage="GetButtonImage" onAction="OnDuplicate"
+                  screentip="Make copies of the selection, each one step on from the last"
+                  supertip="A multi-shape selection is copied as a unit and groups stay groups. The originals and the copies are left selected, ready for the next command. Undo removes every copy at once." />
+        </group>
+
+        <!--
           AlignPro's own undo. Ctrl+Z is now safe too - UndoBoundary gives every operation its own
           native undo entry - so these buttons are a labelled convenience rather than the only safe
           route. The label names the operation, which PowerPoint's own Undo does not.
         -->
-        <group id="grpUndo" label="AlignPro undo">
+        <group id="grpUndo" label="AlignPro undo" autoScale="true">
           <button id="btnUndo" getLabel="GetUndoLabel" size="large" imageMso="Undo"
                   getEnabled="GetUndoEnabled" onAction="OnUndo"
                   screentip="Reverse the last AlignPro operation"

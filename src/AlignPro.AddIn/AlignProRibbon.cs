@@ -95,6 +95,7 @@ namespace AlignPro.AddIn
                 "btnMatchWidth" => (AlignVerb.MatchWidth, "Match width"),
                 "btnMatchHeight" => (AlignVerb.MatchHeight, "Match height"),
                 "btnMatchBoth" => (AlignVerb.MatchBoth, "Match size"),
+                "btnMatchRotation" => (AlignVerb.MatchRotation, "Match rotation"),
                 _ => throw new ArgumentOutOfRangeException(nameof(control), control.Id, "Unknown match button.")
             };
 
@@ -115,6 +116,12 @@ namespace AlignPro.AddIn
 
         public void OnGrid(Office.IRibbonControl control) => Guard(() =>
             Report(Controller.Run(AlignVerb.GridArrange, "Arrange in grid"), "Arrange in grid"));
+
+        public void OnDistributeCurve(Office.IRibbonControl control) => Guard(() =>
+            Report(Controller.RunCurve("Distribute along curve"), "Distribute along curve"));
+
+        public void OnDuplicate(Office.IRibbonControl control) => Guard(() =>
+            Report(Controller.RunDuplicate("Duplicate"), "Duplicate"));
 
         // -- undo --------------------------------------------------------------------------------
         // AlignPro keeps its own undo because PowerPoint's cannot be trusted after an object-model
@@ -163,6 +170,20 @@ namespace AlignPro.AddIn
             SizeMarginMode.Cascade
         };
 
+        private static readonly SizeDirection[] SizeDirections =
+        {
+            SizeDirection.Shrink,
+            SizeDirection.Grow
+        };
+
+        private static readonly DuplicatePivot[] DuplicatePivots =
+        {
+            DuplicatePivot.OwnCentre,
+            DuplicatePivot.SelectionCentre,
+            DuplicatePivot.AnchorCentre,
+            DuplicatePivot.SlideCentre
+        };
+
         private static readonly DistributeMode[] DistributeModes =
         {
             DistributeMode.LeadingEdge,
@@ -194,6 +215,23 @@ namespace AlignPro.AddIn
 
         public void OnSizeMarginModeChange(Office.IRibbonControl control, string selectedId, int selectedIndex) =>
             Guard(() => Controller.SizeMarginMode = SizeMarginModes[selectedIndex]);
+
+        public int GetDuplicatePivotIndex(Office.IRibbonControl control) =>
+            Math.Max(0, Array.IndexOf(DuplicatePivots, Controller.DuplicatePivot));
+
+        public void OnDuplicatePivotChange(Office.IRibbonControl control, string selectedId, int selectedIndex) =>
+            Guard(() => Controller.DuplicatePivot = DuplicatePivots[selectedIndex]);
+
+        public bool GetRotateShapes(Office.IRibbonControl control) => Controller.RotateShapes;
+
+        public void OnRotateShapesChange(Office.IRibbonControl control, bool pressed) =>
+            Guard(() => Controller.RotateShapes = pressed);
+
+        public int GetSizeDirectionIndex(Office.IRibbonControl control) =>
+            Math.Max(0, Array.IndexOf(SizeDirections, Controller.SizeDirection));
+
+        public void OnSizeDirectionChange(Office.IRibbonControl control, string selectedId, int selectedIndex) =>
+            Guard(() => Controller.SizeDirection = SizeDirections[selectedIndex]);
 
         // -- numeric boxes -----------------------------------------------------------------------
 
@@ -235,14 +273,19 @@ namespace AlignPro.AddIn
                 return;
             }
 
-            // Negative is meaningful: it grows the shapes rather than shrinking them.
-            if (TryParsePoints(text, out var value))
+            // The sign belongs to the Direction dropdown. Accepting a negative here as well would give
+            // two controls that can cancel each other out, and Grow with -10 shrinking is a puzzle.
+            if (!TryParsePoints(text, out var value))
             {
-                Controller.SizeMargin = value;
+                Warn($"'{text}' is not a margin in points.");
+            }
+            else if (value < 0)
+            {
+                Warn($"The margin is always a positive number. To make the shapes larger than the anchor, set Direction to Grow and enter {(-value).ToString("0.##", CultureInfo.CurrentCulture)}.");
             }
             else
             {
-                Warn($"'{text}' is not a margin in points. Negative numbers make the shapes larger than the anchor.");
+                Controller.SizeMargin = value;
             }
 
             Invalidate();
@@ -283,6 +326,53 @@ namespace AlignPro.AddIn
             else
             {
                 Warn($"'{text}' is not a column count. Leave the box blank for a near-square grid.");
+            }
+
+            Invalidate();
+        });
+
+        /// <summary>The four Duplicate boxes share one getter, keyed on which box is asking.</summary>
+        public string GetDuplicateText(Office.IRibbonControl control) => control.Id switch
+        {
+            "ebDupX" => Controller.DuplicateX.ToString("0.##", CultureInfo.CurrentCulture),
+            "ebDupY" => Controller.DuplicateY.ToString("0.##", CultureInfo.CurrentCulture),
+            "ebDupAngle" => Controller.DuplicateAngle.ToString("0.##", CultureInfo.CurrentCulture),
+            "ebDupCopies" => Controller.DuplicateCopies.ToString(CultureInfo.CurrentCulture),
+            _ => string.Empty
+        };
+
+        public void OnDuplicateTextChange(Office.IRibbonControl control, string text) => Guard(() =>
+        {
+            // Blank is zero for the three step boxes: an empty field is inert, which is exactly what
+            // a zero is in the step.
+            if (control.Id == "ebDupCopies")
+            {
+                if (int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var copies) &&
+                    copies >= 1 && copies <= DuplicateRequest.MaxCopies)
+                {
+                    Controller.DuplicateCopies = copies;
+                }
+                else
+                {
+                    Warn($"'{text}' is not a number of copies. Enter a whole number from 1 to {DuplicateRequest.MaxCopies}.");
+                }
+            }
+            else
+            {
+                var value = 0.0;
+                if (!string.IsNullOrWhiteSpace(text) && !TryParsePoints(text, out value))
+                {
+                    Warn($"'{text}' is not a number.");
+                }
+                else
+                {
+                    switch (control.Id)
+                    {
+                        case "ebDupX": Controller.DuplicateX = value; break;
+                        case "ebDupY": Controller.DuplicateY = value; break;
+                        case "ebDupAngle": Controller.DuplicateAngle = value; break;
+                    }
+                }
             }
 
             Invalidate();

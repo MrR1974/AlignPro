@@ -27,7 +27,8 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/New-DevSigningCertificate.ps1`](../tools/New-DevSigningCertificate.ps1) | Creates the machine-local certificate VSTO needs to build |
 | [`tools/Probe-ShapeGeometry.ps1`](../tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
 | [`tools/Probe-UndoGrouping.ps1`](../tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
-| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 13-slide sample deck, one slide per capability |
+| [`tools/Probe-DuplicateAndPaths.ps1`](../tools/Probe-DuplicateAndPaths.ps1) | Duplicate's undo and z-order, freeform nodes, and what an Arc's frame really is |
+| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 17-slide sample deck, one slide per capability |
 | [`tools/New-TestDeck.ps1`](../tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
 | [`tools/Test-AlignProEndToEnd.ps1`](../tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Test-RibbonClicks.ps1`](../tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
@@ -162,9 +163,9 @@ option is not selected"*. The certificate is self-signed and trusted only on the
 Three layers, because each catches what the others cannot.
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 161, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 7, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 8, real ribbon clicks
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 231, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 34, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 25, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over
@@ -225,7 +226,7 @@ its tests build on the dotnet CLI alone and could be run in CI happily.
 Every command is one request: `(Verb, Reference, BoundsModel, Options)`.
 
 - **Verb** — `AlignLeft/Right/Top/Bottom/CentreH/CentreV`, `DistributeH/V`,
-  `MatchWidth/Height/Both`, `GridArrange`
+  `MatchWidth/Height/Both`, `MatchRotation`, `GridArrange`
 - **Reference** — `Anchor`, `SelectionBounds`, `Slide`, `SlideMargins`, `PlaceholderBounds`
 - **BoundsModel** — `ShapeFrame` (PowerPoint's own), `VisualBounds` (rotation-aware), `TextBounds`
 - **DistributeMode** — what the distribute verbs actually space evenly: `LeadingEdge`
@@ -236,7 +237,9 @@ Every command is one request: `(Verb, Reference, BoundsModel, Options)`.
   (`Uniform`), or cumulatively along the selection (`Cascade`). The margin is measured **per side**,
   so one step takes twice it off each dimension — which is what makes `Cascade` plus
   `ResizeOrigin.Centre` come out as even concentric rings. Note there are now two settings called a
-  margin: this one and the slide inset behind `ReferenceTarget.SlideMargins`. They are unrelated
+  margin: this one and the slide inset behind `ReferenceTarget.SlideMargins`. They are unrelated.
+  The ribbon only ever sends a positive margin and a **Direction** (Shrink / Grow); Grow is the
+  controller negating it, because the solver has always grown shapes on a negative margin
 
 **Ordering is the one verb that lives outside this request.** `ZOrderSolver` is a separate entry
 point with its own `OrderVerb`, because the align solver is defined by emitting frame coordinates and
@@ -245,6 +248,25 @@ front, and rewrites only the slots the selection already occupies — so unselec
 layer. `ZOrderPosition` is read-only in the object model, so the applier realises an ordering by
 calling `BringToFront` on each shape in turn from the back of the target list forwards; the ordering
 that was there before is itself the complete undo instruction.
+
+**Two more verbs live outside it for the same kind of reason.** `DuplicateSolver` emits a recipe for
+shapes that do not exist yet - per copy, per original, a frame and an angle - so it cannot be a list
+of changes to existing shapes. One step is a rigid transform, turn about the pivot then move, and copy
+*k* is the step applied *k* times. `CurveSolver` does emit ordinary changes, but needs the anchor's
+curve as well as its frame, which no other verb does. It flattens every kind of curve - oval, Arc,
+line, freeform - to one polyline and places by distance along it, so one placement rule covers all
+four.
+
+**A change can carry an angle.** `GeometryChange` has optional `OldRotation`/`NewRotation`: null means
+"leave the angle alone", which is what every align verb sends, so none of them can clobber a rotation
+they never read. Match rotation and Distribute along curve set it. PowerPoint turns a shape about its
+frame's centre and reports the unrotated frame whatever the angle, so a rotation-only change leaves
+the frame exactly where it was.
+
+**A transaction can carry created shapes.** `ShapeCreation` holds a duplicate's recipe and the keys
+of the shapes it made. Undo deletes them; redo re-runs the recipe from the originals and, since
+PowerPoint gives recreated shapes new ids, rewrites the keys through `Rekey` - the one mutable object
+in the journal, shared between a transaction and its inverse so the next undo sees the new keys.
 
 The six align edges are the verbs; anchor, slide and rotation awareness are the two orthogonal axes
 crossed over them. That is why a large feature list comes out of one small engine.
@@ -293,65 +315,72 @@ Three design decisions that came out of measurement rather than preference:
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Done** — `Application.StartNewUndoEntry` gives each operation its own native undo entry; verified by real ribbon clicks plus Ctrl+Z |
-| 3c. Automated end-to-end tests | **Done** — 161 unit tests, 13 COM checks, and 13 real ribbon clicks |
+| 3c. Automated end-to-end tests | **Done** — 231 unit tests, 34 COM checks, and 25 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
-| 6. Grow or shrink by the match-size margin | **Planned** — see [Next features](#next-features) |
-| 7. Rotation in changes, then Match rotation | **Planned** |
-| 8. Object-model spike for duplicate and paths | **Planned** |
-| 9. Created shapes in transactions, then Duplicate | **Planned** |
-| 10. Distribute on a circle, arc or path | **Planned** |
+| 6. Grow or shrink by the match-size margin | **Done** — Direction dropdown; a negative margin is refused |
+| 7. Rotation in changes, then Match rotation | **Done** |
+| 8. Object-model spike for duplicate and paths | **Done** — probes 7 to 10; two of the plan's assumptions were wrong, see [Next features](#next-features) |
+| 9. Created shapes in transactions, then Duplicate | **Done** |
+| 10. Distribute on a circle, arc or path | **Done** — rotated arcs refused, closed freeforms followed as open |
 
 ### Next features
 
-Planned 2026-09-23, in build order. Each step ships on its own with unit tests, COM and ribbon-click
-checks, and a sample-deck slide.
+Planned 2026-09-23 and built the same day, in this order. Each step has unit tests, COM and
+ribbon-click checks, and a sample-deck slide (slides 10 and 15 to 17). What follows records the decisions, and
+where the build departed from the plan because the spike said otherwise.
 
-**6. Grow or shrink by the margin.** The solver already grows shapes on a negative `SizeMargin`, in
-both `Uniform` and `Cascade` (`NegativeMargin_GrowsTheShapesInstead`,
-`Cascade_GrowsShapesSelectedAfterTheAnchor`), so this is ribbon-only. Add a **Direction** dropdown
-(Shrink / Grow) beside **Apply margin**; the margin box accepts only positive values and the
-direction supplies the sign. A negative entry is refused with a pointer to Grow. With Cascade and
-Grow, the shape selected first ends **largest** — the screentips and README must say so.
+**6. Grow or shrink by the margin.** Ribbon-only, as planned: a **Direction** dropdown (Shrink / Grow)
+beside **Apply margin**. The margin box and `SetSizeMargin` refuse a negative number and point at
+Grow, so there are never two controls that can cancel each other. With Cascade and Grow the shape
+selected first ends largest, which the screentips and README say.
 
-**7. Rotation in changes, then Match rotation.** `GeometryChange` carries frames only, and its
-`Inverted()` relies on "no verb changes rotation". Add `OldRotation`/`NewRotation`, swap them in
-`Inverted()`, and have `ChangeApplier` write `Rotation`. PowerPoint rotates about the frame's centre,
-so a rotation-only change leaves the frame untouched. Match rotation is then a **Rotation** button in
-Match size: every shape takes the anchor's angle. Angle only, not flips. Groups are allowed, since
-rotation is rigid.
+**7. Rotation in changes, then Match rotation.** `GeometryChange` carries optional angles and
+`ChangeApplier` writes `Rotation` only when one is present. **Rotation** sits in the Match group: every
+shape takes the anchor's angle, flips untouched, groups allowed.
 
-**8. Object-model spike.** Measure before building, and record in `object-model-findings.md`:
-- Does `Shape.Duplicate()` / `ShapeRange.Duplicate()` stay inside the entry `StartNewUndoEntry` opened?
-- Where do duplicates land in the z-order, and does the default duplicate offset need undoing before
-  the absolute position is written?
-- Which coordinate space do `Shape.Nodes` report for a rotated or flipped freeform?
-- How do the Arc autoshape's adjustments map to start and end angles?
+**8. Object-model spike.** [Probes 7 to 10](object-model-findings.md#duplicates-and-paths-probes-7-to-10).
+Duplicate stays inside the undo entry and lands on top, as hoped. Two assumptions in the plan were
+wrong: freeform nodes are reported *as drawn*, already rotated and flipped, and an Arc's frame is
+the box of the arc and its centre, not of its ellipse.
 
-**9. Created shapes in transactions, then Duplicate.** `AlignTransaction` gains a list of created
-shapes; undo deletes them. Redo re-runs the duplicate from the originals and rewrites the keys, since
-recreated shapes get new ids. `DuplicateSolver` is a separate pure entry point, shaped like
-`ZOrderSolver`: selection plus `dx`, `dy`, `angle`, pivot and copies in, per-copy frame and rotation
-out, copy *k* receiving the step *k* times. Decided:
-- One step may both rotate and translate: rotate about the pivot, then translate. A zero field is inert.
-- **Pivot** dropdown: own centre, selection centre, anchor centre, slide centre.
-- **Rotate shapes** toggle, default on: copies turn with the step; off, they stay upright and only
-  their positions follow the rotation.
-- A multi-shape selection is duplicated as a unit, keeping its internal layout; groups stay groups.
-- Originals and copies are left selected, ready for the next verb.
-- New ribbon group: X, Y, Angle, Copies, Pivot, Rotate shapes, Duplicate. Build translation first,
-  then rotation.
+**9. Created shapes in transactions, then Duplicate.** Built as planned: `ShapeCreation`, undo
+deletes, redo re-runs the recipe and rekeys. Decided along the way:
+- **Own centre** means each shape's own centre, so for a multi-shape selection the angle spins every
+  shape in place while X and Y move them all together. **Selection centre** is the pivot that turns
+  the selection as one rigid piece. It is the centre of the selection's *visual* bounds.
+- `ShapeRange.Duplicate` returns copies in z-order rather than selection order (probe 8), so
+  `ShapeCreator` duplicates one shape at a time, back to front, which keeps each copy's identity
+  certain and the copies' stacking the same as the originals'.
+- A step that would leave every copy on its original is refused rather than quietly stacking shapes.
+  At most 100 copies. Copies that land wholly off the slide are reported.
+- Settings persist like the others: X 20, Y 20, Angle 0, Copies 1, Own centre, Rotate shapes on.
 
-**10. Distribute on a circle, arc or path.** The anchor defines the curve; the other shapes' centres
-are placed along it in selection order.
-- **Ellipse:** a full circuit of n even slots, no overlap at 360°. Spaced by arc length, not angle,
-  so non-circular ellipses do not bunch at the ends.
-- **Arc autoshape:** end to end, both ends included, angles from its adjustments.
-- **Any path:** freeform, line or curve read from `Nodes`, flattened to a polyline and placed by arc
-  length. The geometry stays in `AlignPro.Geometry`; the reader only converts.
-- **Exact (pt)** is reused as the spacing along the curve.
-- The same **Rotate shapes** toggle as Duplicate orients each shape to the tangent.
-- Circle and arc first, then arbitrary paths. Duplicate then distribute-on-circle gives radial arrays.
+**10. Distribute along a curve.** One **Along curve** button in Distribute, with the curve selected
+last. Ovals, Arcs, lines and freeforms are all flattened to a polyline and placed by distance.
+- **Oval:** from twelve o'clock clockwise, n even slots, spaced by arc length.
+- **Arc:** end to end, with the ellipse rebuilt from the frame and angles (probe 10). **A rotated arc
+  is refused.** Its reported frame changes size with the rotation and stops describing the ellipse.
+  A flipped arc works.
+- **Freeform:** taken exactly as its nodes report. A closed freeform cannot be told from an open one
+  (the closing node is not repeated), so it is followed first node to last without the closing
+  segment. Use an oval to go all the way round.
+- **Line:** its own kind, because lines report no nodes: corner to corner of the frame, flips deciding
+  which diagonal.
+- The tangent is measured across a short span centred on the point. The segment the point sits on
+  was off by half a flattening step, which showed as 89.8° where 90° was meant.
+- **Exact (pt)** is the distance between centres along the curve. If it does not fit, the command is
+  refused and says how long the curve is.
+
+**The ribbon now needs `autoScale`.** With two more groups the tab no longer fitted a 1680px window,
+and Office collapsed Duplicate and AlignPro undo into single drop-downs. The ribbon-click harness
+found this: it could not find the buttons. `autoScale="true"` on the groups with large buttons lets
+Office shrink those buttons first, so on a narrow window Align shows small buttons and no group
+collapses. Distribute later moved to small buttons anyway: its three verbs stack in one column, with
+Space by and Exact (pt) in a second. Duplicate opens a gap between the step and its options with a
+label of one Braille blank (U+2800). Three simpler ways failed: Office leaves out a label that is only
+non-breaking or figure spaces, a disabled spacer button draws a grey square, and a
+separator adds a line where only space was wanted.
 
 ### Known limitations
 
@@ -361,7 +390,7 @@ ribbon may still offer to undo what PowerPoint already reversed. Doing so is har
 absolute frames, so it rewrites coordinates the shapes already occupy — but the label misleads.
 
 **Settings are sticky across slides, and that changes what a verb does.** Reference, Measure,
-Space by, Exact (pt) and Margin (pt) persist until you change them. A `Reference` left on **Anchor** makes Grid lay
+Space by, Exact (pt), Margin (pt), Direction and the Duplicate step persist until you change them. A `Reference` left on **Anchor** makes Grid lay
 out inside a single shape's bounds, which packs the whole selection into that shape's footprint — it
 looks like the shapes have collapsed into a corner. Grid now falls back to the selection's extent and
 says so, but the general trap remains: when a result looks wrong, check Reference and Measure first.
@@ -371,6 +400,6 @@ every experiment is written straight back into the fixture. `New-SampleDeck.ps1`
 `sample\` beside the project, which is local and gitignored.
 
 Manual verification: run [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1), which writes a saved
-13-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
+17-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
 captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
 (what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).

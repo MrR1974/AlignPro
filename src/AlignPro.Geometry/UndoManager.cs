@@ -1,9 +1,58 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace AlignPro.Geometry
 {
+    /// <summary>
+    /// Shapes an operation brought into existence, and the recipe for bringing them back.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other change in a transaction edits a shape that exists before and after, and is
+    /// recorded as absolute values that simply swap on undo. Created shapes do not fit that: undo
+    /// deletes them, and a deleted shape cannot be brought back by id. Redo therefore re-runs the
+    /// recipe from the originals, and PowerPoint gives the recreated shapes new ids - so the keys are
+    /// rewritten through <see cref="Rekey"/>, and the next undo deletes the right shapes.
+    /// </para>
+    /// <para>
+    /// That makes this the one mutable object in the journal. It is shared between a transaction and
+    /// its inverse on purpose: keys rewritten by a redo must be the keys the following undo sees.
+    /// </para>
+    /// </remarks>
+    public sealed class ShapeCreation
+    {
+        public ShapeCreation(IReadOnlyList<DuplicateCopy> copies, IReadOnlyList<ShapeKey> createdKeys)
+        {
+            Copies = copies ?? throw new ArgumentNullException(nameof(copies));
+            CreatedKeys = createdKeys ?? throw new ArgumentNullException(nameof(createdKeys));
+        }
+
+        /// <summary>What was made, from which originals, and where each copy went.</summary>
+        public IReadOnlyList<DuplicateCopy> Copies { get; }
+
+        /// <summary>The shapes that exist now because of this operation. Undo deletes these.</summary>
+        public IReadOnlyList<ShapeKey> CreatedKeys { get; private set; }
+
+        /// <summary>Records the ids PowerPoint gave the shapes when a redo recreated them.</summary>
+        public void Rekey(IReadOnlyList<ShapeKey> createdKeys) =>
+            CreatedKeys = createdKeys ?? throw new ArgumentNullException(nameof(createdKeys));
+
+        public override string ToString() =>
+            string.Format(CultureInfo.InvariantCulture, "{0} copies, {1} shapes", Copies.Count, CreatedKeys.Count);
+    }
+
+    /// <summary>Which way a transaction's <see cref="ShapeCreation"/> runs.</summary>
+    public enum CreationDirection
+    {
+        /// <summary>Make the shapes - the operation itself, or a redo of it.</summary>
+        Create,
+
+        /// <summary>Delete the shapes - the undo.</summary>
+        Remove
+    }
+
     /// <summary>
     /// One undoable operation: everything a single ribbon click or hotkey changed, under a label the
     /// UI can show.
@@ -11,7 +60,11 @@ namespace AlignPro.Geometry
     public sealed class AlignTransaction
     {
         public AlignTransaction(
-            string label, IReadOnlyList<GeometryChange> changes, ZOrderChange? order = null)
+            string label,
+            IReadOnlyList<GeometryChange> changes,
+            ZOrderChange? order = null,
+            ShapeCreation? creation = null,
+            CreationDirection direction = CreationDirection.Create)
         {
             if (string.IsNullOrWhiteSpace(label)) throw new ArgumentException("A transaction needs a label.", nameof(label));
             if (changes is null) throw new ArgumentNullException(nameof(changes));
@@ -19,6 +72,8 @@ namespace AlignPro.Geometry
             Label = label;
             Changes = changes;
             Order = order;
+            Creation = creation;
+            Direction = direction;
         }
 
         /// <summary>Shown in the UI, e.g. "Align left" or "Distribute horizontally".</summary>
@@ -37,22 +92,44 @@ namespace AlignPro.Geometry
         /// </remarks>
         public ZOrderChange? Order { get; }
 
+        /// <summary>Shapes this operation created, or null for every verb that only edits.</summary>
+        public ShapeCreation? Creation { get; }
+
+        /// <summary>Whether applying this transaction makes <see cref="Creation"/>'s shapes or deletes them.</summary>
+        public CreationDirection Direction { get; }
+
         /// <summary>Changes that would actually move something.</summary>
         public IReadOnlyList<GeometryChange> EffectiveChanges =>
             Changes.Where(c => !c.IsNoOp).ToList();
 
         /// <summary>True when nothing in the transaction would change, so it is not worth recording.</summary>
-        public bool IsEmpty => EffectiveChanges.Count == 0 && (Order is null || Order.IsNoOp);
+        public bool IsEmpty =>
+            EffectiveChanges.Count == 0 &&
+            (Order is null || Order.IsNoOp) &&
+            (Creation is null || Creation.CreatedKeys.Count == 0);
 
         /// <summary>The transaction running backwards, ready to apply.</summary>
+        /// <remarks>The creation is shared, not copied - see <see cref="ShapeCreation"/>.</remarks>
         public AlignTransaction Inverted() =>
-            new AlignTransaction(Label, Changes.Select(c => c.Inverted()).ToList(), Order?.Inverted());
+            new AlignTransaction(
+                Label,
+                Changes.Select(c => c.Inverted()).ToList(),
+                Order?.Inverted(),
+                Creation,
+                Direction == CreationDirection.Create ? CreationDirection.Remove : CreationDirection.Create);
 
         /// <summary>Builds a transaction from a solve, dropping changes that would not move anything.</summary>
         public static AlignTransaction FromResult(string label, SolveResult result)
         {
             if (result is null) throw new ArgumentNullException(nameof(result));
             return new AlignTransaction(label, result.EffectiveChanges.ToList());
+        }
+
+        /// <summary>Builds a transaction that only creates shapes, changing no existing ones.</summary>
+        public static AlignTransaction FromCreation(string label, ShapeCreation creation)
+        {
+            if (creation is null) throw new ArgumentNullException(nameof(creation));
+            return new AlignTransaction(label, Array.Empty<GeometryChange>(), creation: creation);
         }
 
         /// <summary>Builds a transaction that only restacks, changing no geometry.</summary>
@@ -81,7 +158,8 @@ namespace AlignPro.Geometry
     /// <para>
     /// The two stacks are independent, and a native Ctrl+Z does not pop this one. That is survivable
     /// rather than correct: <see cref="GeometryChange"/> holds absolute frames, so undoing here after
-    /// a native undo rewrites coordinates the shapes already occupy. The button's label and enabled
+    /// a native undo rewrites coordinates the shapes already occupy, and undoing a duplicate whose
+    /// copies Ctrl+Z already removed finds nothing left to delete. The button's label and enabled
     /// state can still be a step ahead of the document.
     /// </para>
     /// <para>

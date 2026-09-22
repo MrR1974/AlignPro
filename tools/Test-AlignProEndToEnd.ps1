@@ -26,6 +26,7 @@ $msoFalse          = 0
 $msoSendToBack     = 1
 $msoBringForward   = 2
 $msoShapeRectangle = 1
+$msoShapeArc       = 25
 $ppLayoutBlank     = 12
 $tolerance         = 0.75
 
@@ -332,6 +333,240 @@ try {
     $f.Slide.Shapes.Item('A').Select($msoTrue)
     $refusal = $api.RunOrder('StackFirstOnTop')
     Add-Result 'Order refuses a single shape' ($refusal -ne '') ("said: " + $refusal)
+}
+finally { Close-Fixture -Fixture $f }
+
+# --- helpers for the cases below, which each need a selection in a specific order ------------------
+function New-EmptyFixture {
+    $pres = $ppt.Presentations.Add()
+    $slide = $pres.Slides.Add(1, $ppLayoutBlank)
+    [pscustomobject]@{ Presentation = $pres; Slide = $slide }
+}
+
+function Add-Rect {
+    param($Fixture, [string] $Name, [double] $X, [double] $Y, [double] $W, [double] $H, [double] $R = 0, [int] $Type = $msoShapeRectangle)
+    $s = $Fixture.Slide.Shapes.AddShape($Type, $X, $Y, $W, $H)
+    $s.Name = $Name
+    if ($R -ne 0) { $s.Rotation = $R }
+    $s
+}
+
+# Selection order is the input for anchors and curves, and Range(...).Select() promises nothing about
+# it, so shapes are added one at a time.
+function Select-InOrder {
+    param($Fixture, [string[]] $Names)
+    $first = $true
+    foreach ($n in $Names) {
+        $Fixture.Slide.Shapes.Item($n).Select($(if ($first) { $msoTrue } else { $msoFalse }))
+        $first = $false
+    }
+}
+
+function Get-Centre {
+    param($Fixture, [string] $Name)
+    $s = $Fixture.Slide.Shapes.Item($Name)
+    [pscustomobject]@{ X = $s.Left + $s.Width / 2; Y = $s.Top + $s.Height / 2; R = [double]$s.Rotation }
+}
+
+function Test-Near { param([double] $A, [double] $B, [double] $Within = $tolerance) [Math]::Abs($A - $B) -le $Within }
+
+# Settings persist in the add-in between cases, so each case below pins what it relies on.
+[void]$api.SetReference('SelectionBounds')
+[void]$api.SetBoundsModel('ShapeFrame')
+[void]$api.SetExactSpacing('')
+
+# =================================================================================================
+# Case 7: Grow - the direction supplies the sign, and a negative margin is refused
+# =================================================================================================
+$f = New-Fixture
+try {
+    $refused = $api.SetSizeMargin('-10')
+    Add-Result 'A negative margin is refused' ($refused -like '*Grow*') ("said: " + $refused)
+
+    [void]$api.SetSizeMargin('10')
+    [void]$api.SetSizeDirection('Grow')
+    [void]$api.SetSizeMarginMode('Cascade')
+    Select-InOrder -Fixture $f -Names @('A', 'B', 'C')
+    $status = $api.RunVerb('MatchBoth')
+
+    # Anchor C is 160x80. Grow with Cascade: A is two steps out, B one.
+    $a = $f.Slide.Shapes.Item('A'); $b = $f.Slide.Shapes.Item('B')
+    $ok = (Test-Near $a.Width 200) -and (Test-Near $a.Height 120) -and (Test-Near $b.Width 180)
+    Add-Result 'Grow with Cascade makes the first selected largest' $ok `
+        ("A {0:F0}x{1:F0}, B {2:F0}, expected 200x120 and 180 {3}" -f $a.Width, $a.Height, $b.Width, $status)
+}
+finally {
+    [void]$api.SetSizeDirection('Shrink')
+    [void]$api.SetSizeMarginMode('None')
+    [void]$api.SetSizeMargin('')
+    Close-Fixture -Fixture $f
+}
+
+# =================================================================================================
+# Case 8: Match rotation, and undo puts the angles back
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'R1' 100 100 80 50 10)
+    [void](Add-Rect $f 'R2' 250 100 60 60)
+    [void](Add-Rect $f 'Anchor' 450 100 120 60 35)
+    $before = Get-Centre $f 'R1'
+
+    Select-InOrder -Fixture $f -Names @('R1', 'R2', 'Anchor')
+    $status = $api.RunVerb('MatchRotation')
+
+    $r1 = Get-Centre $f 'R1'; $r2 = Get-Centre $f 'R2'
+    Add-Result 'Match rotation takes the anchor angle' ((Test-Near $r1.R 35 0.1) -and (Test-Near $r2.R 35 0.1)) `
+        ("R1={0:F1} R2={1:F1}, expected 35 {2}" -f $r1.R, $r2.R, $status)
+    Add-Result 'Match rotation keeps centres' ((Test-Near $r1.X $before.X) -and (Test-Near $r1.Y $before.Y)) `
+        ("R1 centre ({0:F1},{1:F1}) was ({2:F1},{3:F1})" -f $r1.X, $r1.Y, $before.X, $before.Y)
+
+    $ppt.CommandBars.ExecuteMso('Undo')
+    $undone = Get-Centre $f 'R1'
+    Add-Result 'Ctrl+Z restores the angle' (Test-Near $undone.R 10 0.1) ("R1 back to {0:F1}, was 10" -f $undone.R)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 9: Duplicate, and its undo and redo
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'Orig' 100 200 60 40)
+    [void](Add-Rect $f 'Partner' 100 260 60 20)
+    $countBefore = $f.Slide.Shapes.Count
+
+    [void]$api.SetDuplicate(80, 0, 0, 3, 'OwnCentre')
+    [void]$api.SetRotateShapes($true)
+    Select-InOrder -Fixture $f -Names @('Orig', 'Partner')
+    $status = $api.RunDuplicate()
+
+    $countAfter = $f.Slide.Shapes.Count
+    Add-Result 'Duplicate makes every copy' ($countAfter -eq $countBefore + 6) `
+        ("{0} shapes, expected {1} {2}" -f $countAfter, ($countBefore + 6), $status)
+
+    # The last copy of Orig: three steps of 80 to the right, and the pair keeps its layout.
+    $lefts = @(); for ($i = 1; $i -le $countAfter; $i++) { $lefts += [Math]::Round($f.Slide.Shapes.Item($i).Left) }
+    $ok = ($lefts -contains 180) -and ($lefts -contains 260) -and ($lefts -contains 340)
+    Add-Result 'Copies step by the offset' $ok ("lefts: " + (($lefts | Sort-Object -Unique) -join ', '))
+
+    $selected = $ppt.ActiveWindow.Selection.ShapeRange.Count
+    Add-Result 'Originals and copies are left selected' ($selected -eq 8) "$selected selected"
+
+    [void]$api.Undo()
+    Add-Result 'Undo removes every copy' ($f.Slide.Shapes.Count -eq $countBefore) "$($f.Slide.Shapes.Count) shapes"
+
+    [void]$api.Redo()
+    Add-Result 'Redo makes them again' ($f.Slide.Shapes.Count -eq $countBefore + 6) "$($f.Slide.Shapes.Count) shapes"
+
+    # The copies redo made have new ids; undo must find those, not the ids from the first run.
+    [void]$api.Undo()
+    Add-Result 'Undo after redo removes the new copies' ($f.Slide.Shapes.Count -eq $countBefore) "$($f.Slide.Shapes.Count) shapes"
+
+    # Native undo: duplicate again, then Ctrl+Z must take away the copies and nothing else.
+    Select-InOrder -Fixture $f -Names @('Orig', 'Partner')
+    [void]$api.RunDuplicate()
+    $ppt.CommandBars.ExecuteMso('Undo')
+    $nativeOk = ($f.Presentation.Slides.Count -eq 1) -and ($f.Slide.Shapes.Count -eq $countBefore)
+    Add-Result 'Ctrl+Z removes only the copies' $nativeOk `
+        ("{0} slides, {1} shapes (expected 1 and {2})" -f $f.Presentation.Slides.Count, $f.Slide.Shapes.Count, $countBefore)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 10: Duplicate round the slide centre - the radial array
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    # 20x20, centred 100pt above the slide centre (480, 270).
+    [void](Add-Rect $f 'Spoke' 470 160 20 20)
+    [void]$api.SetDuplicate(0, 0, 90, 3, 'SlideCentre')
+    [void]$api.SetRotateShapes($true)
+    Select-InOrder -Fixture $f -Names @('Spoke')
+    $status = $api.RunDuplicate()
+
+    $found = 0
+    foreach ($spot in @(@{ X = 580; Y = 270; R = 90 }, @{ X = 480; Y = 370; R = 180 }, @{ X = 380; Y = 270; R = 270 })) {
+        for ($i = 1; $i -le $f.Slide.Shapes.Count; $i++) {
+            $s = $f.Slide.Shapes.Item($i)
+            if ((Test-Near ($s.Left + 10) $spot.X) -and (Test-Near ($s.Top + 10) $spot.Y) -and (Test-Near $s.Rotation $spot.R 0.1)) { $found++ }
+        }
+    }
+    Add-Result 'Duplicate turns copies round the slide centre' ($found -eq 3) "$found of 3 copies at 3, 6 and 9 o'clock $status"
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 11: Distribute along a circle, an arc and a path
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    $msoShapeOval = 9
+    foreach ($n in 1..4) { [void](Add-Rect $f "Dot$n" (60 * $n) 450 20 20) }
+    [void](Add-Rect $f 'Ring' 380 170 200 200 0 $msoShapeOval)   # centred on (480, 270), radius 100
+
+    [void]$api.SetExactSpacing('')
+    [void]$api.SetRotateShapes($true)
+    Select-InOrder -Fixture $f -Names @('Dot1', 'Dot2', 'Dot3', 'Dot4', 'Ring')
+    $status = $api.RunDistributeCurve()
+
+    $expected = @(@{ X = 480; Y = 170; R = 0 }, @{ X = 580; Y = 270; R = 90 }, @{ X = 480; Y = 370; R = 180 }, @{ X = 380; Y = 270; R = 270 })
+    $ok = 0
+    for ($i = 0; $i -lt 4; $i++) {
+        $c = Get-Centre $f "Dot$($i + 1)"
+        if ((Test-Near $c.X $expected[$i].X) -and (Test-Near $c.Y $expected[$i].Y) -and (Test-Near $c.R $expected[$i].R 0.6)) { $ok++ }
+    }
+    Add-Result 'Circle: four shapes at twelve, three, six and nine' ($ok -eq 4) "$ok of 4 placed and turned $status"
+
+    [void]$api.Undo()
+    $back = Get-Centre $f 'Dot1'
+    Add-Result 'Circle: undo puts them back' ((Test-Near $back.X 70) -and (Test-Near $back.Y 460) -and (Test-Near $back.R 0 0.1)) `
+        ("Dot1 at ({0:F1},{1:F1}) rot {2:F1}" -f $back.X, $back.Y, $back.R)
+
+    # Arc: PowerPoint's default quarter, from twelve o'clock round to three. Its frame is the box of
+    # the arc and its centre (probe 10), so the centre is the frame's bottom-left corner and the
+    # quarter runs from the top-left corner to the bottom-right.
+    $f.Slide.Shapes.Item('Ring').Delete()
+    $arc = Add-Rect $f 'Bow' 380 170 200 200 0 $msoShapeArc
+    $adj1 = $arc.Adjustments.Item(1); $adj2 = $arc.Adjustments.Item(2)
+    Select-InOrder -Fixture $f -Names @('Dot1', 'Dot2', 'Dot3', 'Bow')
+    $status = $api.RunDistributeCurve()
+    $first = Get-Centre $f 'Dot1'; $last = Get-Centre $f 'Dot3'
+    $ok = (Test-Near $first.X 380) -and (Test-Near $first.Y 170) -and (Test-Near $last.X 580) -and (Test-Near $last.Y 370)
+    Add-Result 'Arc: both ends included' $ok `
+        ("adj=({0},{1}); first ({2:F1},{3:F1}) last ({4:F1},{5:F1}) {6}" -f $adj1, $adj2, $first.X, $first.Y, $last.X, $last.Y, $status)
+
+    # Flipped, the frame mirrors about the ellipse's centre (probe 10): it now spans 180..380, and
+    # the quarter runs from twelve o'clock round to nine.
+    $arc.Flip(0)
+    Select-InOrder -Fixture $f -Names @('Dot1', 'Dot2', 'Dot3', 'Bow')
+    $status = $api.RunDistributeCurve()
+    $first = Get-Centre $f 'Dot1'; $last = Get-Centre $f 'Dot3'
+    $ok = (Test-Near $first.X 380) -and (Test-Near $first.Y 170) -and (Test-Near $last.X 180) -and (Test-Near $last.Y 370)
+    Add-Result 'Arc: a flipped arc is followed as drawn' $ok `
+        ("frame L={0:F1}; first ({1:F1},{2:F1}) last ({3:F1},{4:F1}) {5}" -f $arc.Left, $first.X, $first.Y, $last.X, $last.Y, $status)
+
+    $arc.Rotation = 30
+    $refusal = $api.RunDistributeCurve()
+    Add-Result 'Arc: a rotated arc is refused' ($refusal -like '*rotated arc*') ("said: " + $refusal)
+
+    # Path: a freeform L, 300pt long.
+    $builder = $f.Slide.Shapes.BuildFreeform(1, 100, 100)
+    $builder.AddNodes(0, 0, 300, 100)
+    $builder.AddNodes(0, 0, 300, 200)
+    $path = $builder.ConvertToShape()
+    $path.Name = 'Track'
+    Select-InOrder -Fixture $f -Names @('Dot1', 'Dot2', 'Dot3', 'Track')
+    $status = $api.RunDistributeCurve()
+    $mid = Get-Centre $f 'Dot2'; $end = Get-Centre $f 'Dot3'
+    $ok = (Test-Near $mid.X 250) -and (Test-Near $mid.Y 100) -and (Test-Near $end.X 300) -and (Test-Near $end.Y 200) -and (Test-Near $end.R 90 0.1)
+    Add-Result 'Path: placed by distance, turned at the corner' $ok `
+        ("middle ({0:F1},{1:F1}) end ({2:F1},{3:F1}) rot {4:F1} {5}" -f $mid.X, $mid.Y, $end.X, $end.Y, $end.R, $status)
+
+    # Something that is not a curve must be refused by name, not approximated.
+    Select-InOrder -Fixture $f -Names @('Dot1', 'Dot4')
+    $refusal = $api.RunDistributeCurve()
+    Add-Result 'A rectangle is not taken for a curve' ($refusal -like '*oval*') ("said: " + $refusal)
 }
 finally { Close-Fixture -Fixture $f }
 

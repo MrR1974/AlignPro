@@ -216,7 +216,7 @@ $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 # 6. Match size
 # =================================================================================================
 $s = Add-Slide -Title 'Match size to the anchor' `
-               -Try  'Select the three odd shapes, then Ctrl+click TARGET last. Match size > Both. Try the From centre toggle too.'
+               -Try  'Select the three odd shapes, then Ctrl+click TARGET last. Match > Both. Try the From centre toggle too.'
 Add-Box -Slide $s -Name 'Odd1' -X 110 -Y 180 -W 80  -H 130 -Colour $blue   | Out-Null
 Add-Box -Slide $s -Name 'Odd2' -X 240 -Y 220 -W 160 -H 60  -Colour $green  | Out-Null
 Add-Box -Slide $s -Name 'Odd3' -X 130 -Y 350 -W 110 -H 90  -Colour $purple | Out-Null
@@ -243,13 +243,13 @@ $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 # 8. Match size with a margin
 # =================================================================================================
 $s = Add-Slide -Title 'Match size with a margin' `
-               -Try  'Type 10 in Margin (pt) and set Apply margin = All the same. Select the three shapes, Ctrl+click TARGET last, then click Match size > Both.'
+               -Try  'Type 10 in Margin (pt) and set Apply margin = All the same. Select the three shapes, Ctrl+click TARGET last, then click Match > Both.'
 Add-Box -Slide $s -Name 'Step1' -X 110 -Y 180 -W 80  -H 130 -Colour $blue   -Label '1st' | Out-Null
 Add-Box -Slide $s -Name 'Step2' -X 240 -Y 220 -W 160 -H 60  -Colour $green  -Label '2nd' | Out-Null
 Add-Box -Slide $s -Name 'Step3' -X 130 -Y 350 -W 110 -H 90  -Colour $purple -Label '3rd' | Out-Null
 Add-Box -Slide $s -Name 'MarginTarget' -X 600 -Y 220 -W 220 -H 140 -Colour $red -Label 'TARGET' | Out-Null
 $hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 60)
-$hint.TextFrame2.TextRange.Text = 'The margin is measured per side, so a margin of 10 takes 20 off each dimension and leaves a 10pt border showing all round. Now click AlignPro undo, set Apply margin to Cascade, select the shapes again in the same order and click Match size > Both: the shapes tier along the order you selected in, and the one you selected first ends smallest.'
+$hint.TextFrame2.TextRange.Text = 'The margin is measured per side, so a margin of 10 takes 20 off each dimension and leaves a 10pt border showing all round. Now click AlignPro undo, set Apply margin to Cascade, select the shapes again in the same order and click Match > Both: the shapes tier along the order you selected in, and the one you selected first ends smallest.'
 $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
@@ -257,7 +257,7 @@ $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 # 9. Concentric rings - the two new features together
 # =================================================================================================
 $s = Add-Slide -Title 'Concentric rings' `
-               -Try  'Select 1st, then Ctrl+click 2nd, 3rd, 4th and 5th in turn. Click Align > Centre, then Align > Middle. Type 12 in Margin (pt), set Apply margin = Cascade, switch From centre on, then click Match size > Both. Finish by clicking Order > Stack.'
+               -Try  'Select 1st, then Ctrl+click 2nd, 3rd, 4th and 5th in turn. Click Align > Centre, then Align > Middle. Type 12 in Margin (pt), set Apply margin = Cascade, switch From centre on, then click Match > Both. Finish by clicking Order > Stack.'
 Add-Box -Slide $s -Name 'Ring1' -X 90  -Y 180 -W 150 -H 110 -Colour $blue   -Label '1st' | Out-Null
 Add-Box -Slide $s -Name 'Ring2' -X 290 -Y 300 -W 170 -H 120 -Colour $green  -Label '2nd' | Out-Null
 Add-Box -Slide $s -Name 'Ring3' -X 500 -Y 170 -W 160 -H 130 -Colour $orange -Label '3rd' | Out-Null
@@ -269,7 +269,21 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 10. Groups
+# 10. Grow past the anchor
+# =================================================================================================
+$s = Add-Slide -Title 'Grow past the anchor' `
+               -Try  'Type 12 in Margin (pt), set Apply margin = Cascade and Direction = Grow, switch From centre on. Select 1st, Ctrl+click 2nd, 3rd, then CORE last. Click Match > Both.'
+Add-Box -Slide $s -Name 'Grow1' -X 110 -Y 180 -W 80  -H 60  -Colour $blue   -Label '1st' | Out-Null
+Add-Box -Slide $s -Name 'Grow2' -X 250 -Y 300 -W 70  -H 90  -Colour $green  -Label '2nd' | Out-Null
+Add-Box -Slide $s -Name 'Grow3' -X 120 -Y 380 -W 100 -H 50  -Colour $purple -Label '3rd' | Out-Null
+Add-Box -Slide $s -Name 'Core'  -X 600 -Y 250 -W 120 -H 80  -Colour $red    -Label 'CORE' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'Grow is the mirror of Shrink: the margin is still a positive number, and the shapes end outside the anchor instead of inside it. With Cascade the shape you selected first ends largest. Align them all to CORE (Reference = Anchor, Align > Centre then Middle) and Order > Reverse to see the rings.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 11. Groups
 # =================================================================================================
 $s = Add-Slide -Title 'Groups are one object' `
                -Try  'Align the group with the loose shapes - its internal spacing must not change. Then try Match size on it.'
@@ -286,7 +300,7 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 11. Text bounds
+# 12. Text bounds
 # =================================================================================================
 $s = Add-Slide -Title 'Align the text, not the box' `
                -Try  'All three frames already start at the same x. Select them and Align > Left with Measure = Text bounds.'
@@ -308,7 +322,7 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 12. Grid
+# 13. Grid
 # =================================================================================================
 $s = Add-Slide -Title 'Tidy a scatter into a grid' `
                -Try  'Select all nine circles. Leave Columns blank for a near-square grid, or type 3. Then Arrange > Grid.'
@@ -327,7 +341,7 @@ $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
 # =================================================================================================
-# 13. Slide and margin references
+# 14. Slide and margin references
 # =================================================================================================
 $s = Add-Slide -Title 'Align to the slide, or to its margins' `
                -Try  'Select one shape. Reference = Slide then Align > Centre. Then Reference = Slide margins with Margin = 36.'
@@ -335,6 +349,68 @@ Add-Box -Slide $s -Name 'Wanderer' -X 150 -Y 200 -W 220 -H 120 -Colour $orange -
 Add-Box -Slide $s -Name 'Friend'   -X 620 -Y 340 -W 160 -H 90  -Colour $green   | Out-Null
 $hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 470, 880, 50)
 $hint.TextFrame2.TextRange.Text = 'Aligning a single shape to the selection is meaningless, so AlignPro refuses it and says why. Against the slide it is perfectly meaningful, so it works.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 15. Match rotation
+# =================================================================================================
+$s = Add-Slide -Title 'Match rotation' `
+               -Try  'Select the three tilted shapes, then Ctrl+click LEVEL last. Click Match > Rotation.'
+Add-Box -Slide $s -Name 'Tilt1' -X 120 -Y 180 -W 140 -H 60 -Colour $blue   -Rotation 12  -Label '12' | Out-Null
+Add-Box -Slide $s -Name 'Tilt2' -X 330 -Y 300 -W 120 -H 70 -Colour $green  -Rotation 351 -Label '-9' | Out-Null
+Add-Box -Slide $s -Name 'Tilt3' -X 150 -Y 370 -W 160 -H 50 -Colour $purple -Rotation 25  -Label '25' | Out-Null
+Add-Box -Slide $s -Name 'Level' -X 620 -Y 240 -W 180 -H 90 -Colour $red    -Rotation 20  -Label 'LEVEL (20)' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'Each shape turns about its own centre to the anchor''s angle, and nothing else changes - not its position, not its size, not a flip. Groups are fine here: turning a group does not change the spacing inside it.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 16. Duplicate
+# =================================================================================================
+$s = Add-Slide -Title 'Duplicate: rows, rings and spirals' `
+               -Try  'Select SEED. X = 70, Y = 0, Angle = 0, Copies = 5, then Duplicate. Undo, then X = 0, Y = 0, Angle = 30, Copies = 11, Pivot = Slide centre.'
+Add-Box -Slide $s -Name 'Seed' -X 455 -Y 110 -W 50 -H 50 -Colour $orange -Label 'SEED' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 460, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'One step is: turn by Angle about the Pivot, then move by X and Y. Each copy gets one more step than the one before, so X alone makes a row, Angle round a far pivot makes a ring, and both together make a spiral - try X = 12 with the ring settings. Turn Rotate shapes off and the copies stay upright as they go round. Undo removes every copy at once.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 17. Distribute along a curve
+# =================================================================================================
+$s = Add-Slide -Title 'Distribute along a curve' `
+               -Try  'Select the six beads, then Ctrl+click RING last, and Distribute > Along curve. Undo, then try the arc, then the wave.'
+$ring = $s.Shapes.AddShape($msoShapeOval, 70, 120, 240, 240)
+$ring.Name = 'Ring'
+$ring.Fill.Visible = $msoFalse
+$ring.Line.ForeColor.RGB = $grey
+$ring.Line.Weight = 2
+# msoShapeArc. Its adjustments are the start and end angles, clockwise from three o'clock (probe 10),
+# so 180 -> 0 is the top half: nine o'clock over the top to three. Changing them resizes the frame to
+# fit the new arc, so the frame is set afterwards: a 240x120 box holds a half circle of radius 120.
+$bow = $s.Shapes.AddShape(25, 370, 120, 240, 240)
+$bow.Name = 'Arc'
+$bow.Adjustments.Item(1) = 180
+$bow.Adjustments.Item(2) = 0
+$bow.Left = 370; $bow.Top = 150; $bow.Width = 240; $bow.Height = 120
+$bow.Line.ForeColor.RGB = $grey
+$bow.Line.Weight = 2
+$builder = $s.Shapes.BuildFreeform(1, 670, 300)
+$builder.AddNodes(1, 1, 720, 140, 800, 140, 820, 240)   # msoSegmentCurve, msoEditingCorner
+$builder.AddNodes(1, 1, 840, 340, 900, 340, 920, 180)
+$wave = $builder.ConvertToShape()
+$wave.Name = 'Wave'
+$wave.Fill.Visible = $msoFalse
+$wave.Line.ForeColor.RGB = $grey
+$wave.Line.Weight = 2
+for ($i = 1; $i -le 6; $i++) {
+    Add-Box -Slide $s -Name ("Bead$i") -X (60 + $i * 50) -Y 400 -W 30 -H 30 -Colour $blue `
+            -Shape $msoShapeRoundedRectangle -Label $i | Out-Null
+}
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 70)
+$hint.TextFrame2.TextRange.Text = 'Round an oval the beads go evenly from twelve o''clock, clockwise, with no overlap where the circle closes. Along an arc or a path they run from one end to the other. Rotate shapes (in the Duplicate group) turns each bead to follow the curve; Exact (pt) sets the distance between them. Duplicate a bead first, then distribute the copies round the ring, for a radial array.'
 $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 

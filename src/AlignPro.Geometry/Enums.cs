@@ -14,6 +14,13 @@ namespace AlignPro.Geometry
         MatchWidth,
         MatchHeight,
         MatchBoth,
+
+        /// <summary>
+        /// Every shape takes the anchor's angle. The angle only - flips are left alone, since a
+        /// mirrored shape at the same angle is usually exactly what was meant.
+        /// </summary>
+        MatchRotation,
+
         GridArrange
     }
 

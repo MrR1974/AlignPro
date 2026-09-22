@@ -15,14 +15,27 @@ namespace AlignPro.AddIn
             SlideMetrics slide,
             int slideId,
             ShapeKey? anchor,
-            IReadOnlyList<ShapeKey>? slideOrder = null)
+            IReadOnlyList<ShapeKey>? slideOrder = null,
+            CurveDefinition? anchorCurve = null,
+            string? anchorCurveProblem = null)
         {
             Shapes = shapes;
             Slide = slide;
             SlideId = slideId;
             Anchor = anchor;
             SlideOrder = slideOrder;
+            AnchorCurve = anchorCurve;
+            AnchorCurveProblem = anchorCurveProblem;
         }
+
+        /// <summary>
+        /// The curve the anchor defines, when the caller asked for it and the anchor is a shape that
+        /// has one. Null otherwise, with the reason in <see cref="AnchorCurveProblem"/>.
+        /// </summary>
+        public CurveDefinition? AnchorCurve { get; }
+
+        /// <summary>Why <see cref="AnchorCurve"/> is null, when it was asked for.</summary>
+        public string? AnchorCurveProblem { get; }
 
         public IReadOnlyList<ShapeSnapshot> Shapes { get; }
 
@@ -51,7 +64,10 @@ namespace AlignPro.AddIn
     internal static class SelectionReader
     {
         // MsoShapeType values used here, named to keep the intent readable.
+        private const int MsoAutoShape = 1;
+        private const int MsoFreeform = 5;
         private const int MsoGroup = 6;
+        private const int MsoLine = 9;
         private const int MsoPlaceholder = 14;
 
         /// <summary>
@@ -62,7 +78,8 @@ namespace AlignPro.AddIn
             PowerPoint.Application app,
             double margin,
             out string? problem,
-            bool includeSlideOrder = false)
+            bool includeSlideOrder = false,
+            bool includeAnchorCurve = false)
         {
             problem = null;
 
@@ -138,7 +155,23 @@ namespace AlignPro.AddIn
 
                 var slideOrder = includeSlideOrder ? ReadSlideOrder(slide, slideId) : null;
 
-                return new SelectionSnapshot(shapes, metrics, slideId, anchor, slideOrder);
+                CurveDefinition? curve = null;
+                string? curveProblem = null;
+                if (includeAnchorCurve)
+                {
+                    PowerPoint.Shape? last = null;
+                    try
+                    {
+                        last = range[range.Count];
+                        curve = ReadCurve(last, out curveProblem);
+                    }
+                    finally
+                    {
+                        Com.Release(last);
+                    }
+                }
+
+                return new SelectionSnapshot(shapes, metrics, slideId, anchor, slideOrder, curve, curveProblem);
             }
             finally
             {
@@ -187,6 +220,136 @@ namespace AlignPro.AddIn
             finally
             {
                 Com.Release(shapes);
+            }
+        }
+
+        /// <summary>
+        /// The curve a shape defines, converted out of COM and nothing more - the geometry of turning
+        /// it into points lives in <see cref="CurveSolver"/>, where it can be tested.
+        /// </summary>
+        /// <remarks>
+        /// Four kinds are understood: an oval, PowerPoint's Arc, a straight line, and a freeform
+        /// (which is also what the Curve and Scribble tools draw). Anything else is refused by name
+        /// rather than approximated by its frame, which would be a guess the user could not see.
+        /// </remarks>
+        private static CurveDefinition? ReadCurve(PowerPoint.Shape shape, out string? problem)
+        {
+            const int msoShapeOval = 9;
+            const int msoShapeArc = 25;
+
+            problem = null;
+            try
+            {
+                var type = (int)shape.Type;
+
+                if (type == MsoLine)
+                {
+                    // A line reports no nodes (probe 9); it runs corner to corner of its frame, and
+                    // its flips say which diagonal. The snapshot already carries the frame and flips.
+                    return CurveDefinition.Line();
+                }
+
+                if (type == MsoFreeform)
+                {
+                    return ReadNodes(shape, out problem);
+                }
+
+                if (type == MsoAutoShape || type == MsoPlaceholder)
+                {
+                    var autoShape = (int)shape.AutoShapeType;
+                    if (autoShape == msoShapeOval) return CurveDefinition.Ellipse();
+                    if (autoShape == msoShapeArc) return ReadArc(shape, out problem);
+                }
+
+                problem = "The curve (the shape selected last) must be an oval, an arc, a line or a freeform path.";
+                return null;
+            }
+            catch (COMException ex)
+            {
+                problem = "Could not read the curve from the shape selected last: " + ex.Message;
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The Arc autoshape's two adjustments are its start and end angles, in degrees clockwise
+        /// from three o'clock, as directions from the ellipse's centre. See
+        /// <c>docs/object-model-findings.md</c>, probe 10 - the frame is not what it seems.
+        /// </summary>
+        private static CurveDefinition? ReadArc(PowerPoint.Shape shape, out string? problem)
+        {
+            problem = null;
+            PowerPoint.Adjustments? adjustments = null;
+            try
+            {
+                adjustments = shape.Adjustments;
+                if (adjustments.Count < 2)
+                {
+                    problem = "This arc does not report its start and end angles.";
+                    return null;
+                }
+
+                return CurveDefinition.Arc(adjustments[1], adjustments[2]);
+            }
+            finally
+            {
+                Com.Release(adjustments);
+            }
+        }
+
+        /// <summary>
+        /// A freeform's nodes as plain points. Control points are nodes in their own right; which
+        /// ones they are is read from the segment types by <see cref="CurveSolver"/>. PowerPoint
+        /// reports them already rotated and flipped, exactly where they are drawn (probe 9).
+        /// </summary>
+        private static CurveDefinition? ReadNodes(PowerPoint.Shape shape, out string? problem)
+        {
+            const int msoSegmentCurve = 1;
+
+            problem = null;
+            PowerPoint.ShapeNodes? nodes = null;
+            try
+            {
+                nodes = shape.Nodes;
+                var count = nodes.Count;
+                if (count < 2)
+                {
+                    problem = "The path has fewer than two points.";
+                    return null;
+                }
+
+                var result = new List<PathNode>(count);
+                for (var i = 1; i <= count; i++)
+                {
+                    PowerPoint.ShapeNode? node = null;
+                    try
+                    {
+                        node = nodes[i];
+
+                        // A one-by-two SAFEARRAY. It can arrive with a lower bound of one rather than
+                        // zero, so it is read through Array rather than cast to float[,].
+                        var points = (Array)node.Points;
+                        var row = points.GetLowerBound(0);
+                        var column = points.GetLowerBound(1);
+                        var x = Convert.ToDouble(points.GetValue(row, column));
+                        var y = Convert.ToDouble(points.GetValue(row, column + 1));
+
+                        var segment = (int)node.SegmentType == msoSegmentCurve
+                            ? PathSegmentKind.Curve
+                            : PathSegmentKind.Line;
+                        result.Add(new PathNode(x, y, segment));
+                    }
+                    finally
+                    {
+                        Com.Release(node);
+                    }
+                }
+
+                return CurveDefinition.Path(result);
+            }
+            finally
+            {
+                Com.Release(nodes);
             }
         }
 

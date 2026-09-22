@@ -56,6 +56,9 @@ namespace AlignPro.Geometry
                 case AlignVerb.MatchBoth:
                     return SolveMatchSize(request, shapes, diagnostics);
 
+                case AlignVerb.MatchRotation:
+                    return SolveMatchRotation(request, shapes, diagnostics);
+
                 case AlignVerb.GridArrange:
                     return SolveGrid(request, shapes, slide, bounds, diagnostics);
 
@@ -482,6 +485,34 @@ namespace AlignPro.Geometry
             return skippedGroups > 0 || collapsed > 0
                 ? SolveResult.OkWithNotice(changes, diagnostics.ToArray())
                 : SolveResult.Ok(changes, diagnostics.ToArray());
+        }
+
+        /// <summary>
+        /// Gives every shape the anchor's angle, holding each frame exactly where it is.
+        /// </summary>
+        /// <remarks>
+        /// Groups are allowed, unlike the resize verbs: rotation is rigid, so a group's internal
+        /// spacing survives it. PowerPoint rotates about the frame's centre, so the frame is carried
+        /// through unchanged and only the angle moves.
+        /// </remarks>
+        private static SolveResult SolveMatchRotation(
+            AlignRequest request, IReadOnlyList<ShapeSnapshot> shapes, List<string> diagnostics)
+        {
+            if (shapes.Count < 2) return SolveResult.Refused("Select at least two shapes to match rotation.");
+
+            var anchor = FindAnchor(request, shapes, out var refusal);
+            if (anchor is null) return SolveResult.Refused(refusal!);
+
+            var target = GeometryChange.NormaliseAngle(anchor.Rotation);
+            var changes = new List<GeometryChange>(shapes.Count);
+
+            foreach (var shape in shapes)
+            {
+                if (shape.Key == anchor.Key) continue;
+                changes.Add(new GeometryChange(shape.Key, shape.Frame, shape.Frame, shape.Rotation, target));
+            }
+
+            return SolveResult.Ok(changes, diagnostics.ToArray());
         }
 
         /// <summary>

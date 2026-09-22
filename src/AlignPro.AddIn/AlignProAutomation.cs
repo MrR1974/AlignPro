@@ -54,7 +54,8 @@ namespace AlignPro.AddIn
         public string Describe() => string.Format(
             CultureInfo.InvariantCulture,
             "reference={0} bounds={1} distributeMode={2} exactSpacing={3} margin={4} gridColumns={5} " +
-            "sizeMargin={6} sizeMarginMode={7}",
+            "sizeMargin={6} sizeMarginMode={7} sizeDirection={8} duplicate=({9},{10},{11}deg,x{12},{13}) " +
+            "rotateShapes={14}",
             Controller.Reference,
             Controller.Bounds,
             Controller.DistributeMode,
@@ -62,7 +63,14 @@ namespace AlignPro.AddIn
             Controller.Margin.ToString(CultureInfo.InvariantCulture),
             Controller.GridColumns?.ToString(CultureInfo.InvariantCulture) ?? "auto",
             Controller.SizeMargin.ToString(CultureInfo.InvariantCulture),
-            Controller.SizeMarginMode);
+            Controller.SizeMarginMode,
+            Controller.SizeDirection,
+            Controller.DuplicateX.ToString(CultureInfo.InvariantCulture),
+            Controller.DuplicateY.ToString(CultureInfo.InvariantCulture),
+            Controller.DuplicateAngle.ToString(CultureInfo.InvariantCulture),
+            Controller.DuplicateCopies.ToString(CultureInfo.InvariantCulture),
+            Controller.DuplicatePivot,
+            Controller.RotateShapes);
 
         /// <summary>
         /// Runs a verb against the current selection. Verb names match <see cref="AlignVerb"/>, e.g.
@@ -169,8 +177,9 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>
-        /// Sets the match-size margin in points, measured per side. Negative grows the shapes. An
-        /// empty string clears it.
+        /// Sets the match-size margin in points, measured per side. Refuses a negative number, as the
+        /// ribbon does - <see cref="SetSizeDirection"/> is what makes the shapes grow. An empty string
+        /// clears it.
         /// </summary>
         public string SetSizeMargin(string points)
         {
@@ -185,7 +194,24 @@ namespace AlignPro.AddIn
                 return "'" + points + "' is not a number.";
             }
 
+            if (value < 0)
+            {
+                return "The margin is always positive. Use SetSizeDirection('Grow') to make the shapes larger.";
+            }
+
             Controller.SizeMargin = value;
+            return string.Empty;
+        }
+
+        /// <summary>Sets which way the margin goes: "Shrink" or "Grow".</summary>
+        public string SetSizeDirection(string direction)
+        {
+            if (!Enum.TryParse(direction, ignoreCase: true, result: out SizeDirection parsed))
+            {
+                return "Unknown size direction '" + direction + "'.";
+            }
+
+            Controller.SizeDirection = parsed;
             return string.Empty;
         }
 
@@ -198,6 +224,51 @@ namespace AlignPro.AddIn
             }
 
             Controller.SizeMarginMode = parsed;
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Duplicates the current selection with the current step settings, as the ribbon's
+        /// Duplicate button does.
+        /// </summary>
+        /// <returns>Empty on success, otherwise why nothing happened or what was skipped.</returns>
+        public string RunDuplicate() => Controller.RunDuplicate("Duplicate").Message ?? string.Empty;
+
+        /// <summary>
+        /// Places the selection along the curve selected last, as the ribbon's Along curve button does.
+        /// </summary>
+        /// <returns>Empty on success, otherwise why nothing happened.</returns>
+        public string RunDistributeCurve() =>
+            Controller.RunCurve("Distribute along curve").Message ?? string.Empty;
+
+        /// <summary>
+        /// Sets the duplicate step in one call: X and Y in points, the angle in degrees clockwise,
+        /// the number of copies, and the pivot - a <see cref="DuplicatePivot"/> name.
+        /// </summary>
+        public string SetDuplicate(double x, double y, double angle, int copies, string pivot)
+        {
+            if (!Enum.TryParse(pivot, ignoreCase: true, result: out DuplicatePivot parsed))
+            {
+                return "Unknown pivot '" + pivot + "'.";
+            }
+
+            if (copies < 1 || copies > DuplicateRequest.MaxCopies)
+            {
+                return "Copies must be from 1 to " + DuplicateRequest.MaxCopies.ToString(CultureInfo.InvariantCulture) + ".";
+            }
+
+            Controller.DuplicateX = x;
+            Controller.DuplicateY = y;
+            Controller.DuplicateAngle = angle;
+            Controller.DuplicateCopies = copies;
+            Controller.DuplicatePivot = parsed;
+            return string.Empty;
+        }
+
+        /// <summary>Sets the Rotate shapes toggle shared by Duplicate and Distribute along curve.</summary>
+        public string SetRotateShapes(bool enabled)
+        {
+            Controller.RotateShapes = enabled;
             return string.Empty;
         }
 

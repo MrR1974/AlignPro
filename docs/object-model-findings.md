@@ -364,3 +364,102 @@ Two other ways to lose an afternoon here, both hit while measuring this:
   shape first so the verb has real work. The harness docstring already warned about this.
 - `CommandBars.ExecuteMso('Undo')` over COM was not the culprit when a probe hung, despite probe 4's
   HRESULT failure making it the obvious suspect. The blocked UI thread from a dialog was.
+
+
+## Duplicates and paths: probes 7 to 10
+
+The spike planned as step 8, before Duplicate and Distribute along curve were built.
+
+Measured by `tools/Probe-DuplicateAndPaths.ps1` on 2026-09-23, PowerPoint 16.0 build 20326.
+
+### 7. Does Shape.Duplicate stay inside the entry StartNewUndoEntry opened?
+
+**YES - one undo removed the copy and its edits, and the move before the boundary held.**
+
+```text
+shapes before undo: 2, after: 1
+copy gone: True
+DupA.Left after undo: 200.0 (moved to 200 before the boundary)
+Measured over COM. The ribbon-click harness repeats this through a real click.
+```
+
+### 8. Where does a duplicate land in the z-order, and does its offset need undoing?
+
+**ON TOP, OFFSET (12.0, 12.0) - a duplicate lands frontmost; writing an absolute position straight after simply overrides the offset.**
+
+```text
+Back                       L=  100.00 T=  300.00 W=   60.00 H=   40.00 Rot=   0.0 Z=1
+Middle                     L=  180.00 T=  300.00 W=   60.00 H=   40.00 Rot=  20.0 Z=2
+Front                      L=  260.00 T=  300.00 W=   60.00 H=   40.00 Rot=   0.0 Z=3
+Middle.Duplicate()         L=  192.00 T=  312.00 W=   60.00 H=   40.00 Rot=  20.0 Z=4
+offset from original: (12.00, 12.00); copy on top: True; rotation copied: True
+after Left=500 Top=200     L=  500.00 T=  200.00 W=   60.00 H=   40.00 Rot=  20.0 Z=4
+Range order: Front, Back, Middle
+its Duplicate() lefts, in returned order: 112, 192, 272  (sources at Front=260, Back=100, Middle=180)
+```
+
+### 9. Which coordinate space do Shape.Nodes report for a rotated or flipped freeform?
+
+**ROTATED AND FLIPPED - nodes unchanged by rotation: False; unchanged by a horizontal flip: False.**
+
+```text
+freeform                   L=  100.00 T=  100.00 W=  300.00 H=  160.00 Rot=   0.0 Z=1
+nodes as built:   (100.0,100.0) (300.0,100.0) (300.0,200.0) (320.0,260.0)c (380.0,260.0)c (400.0,200.0)c
+segment types:    0,0,0,1,1,1   (1 = curve)
+after Rotation=90          L=  100.00 T=  100.00 W=  300.00 H=  160.00 Rot=  90.0 Z=1
+nodes rotated:    (330.0,30.0) (330.0,230.0) (230.0,230.0) (170.0,250.0)c (170.0,310.0)c (230.0,330.0)c
+HorizontalFlip = -1
+nodes flipped H:  (400.0,100.0) (200.0,100.0) (200.0,200.0) (180.0,260.0)c (120.0,260.0)c (100.0,200.0)c
+closed triangle:  (500.0,100.0) (600.0,100.0) (600.0,200.0)
+AddLine(100,400 -> 300,350) L=  100.00 T=  350.00 W=  200.00 H=   50.00 Rot=   0.0 Z=3
+line Type=9 HorizontalFlip=0 VerticalFlip=-1
+line nodes: none - Nodes.Count is 0
+```
+
+### 10. How do the Arc autoshape's adjustments map to start and end angles?
+
+**ADJ1 = START, ADJ2 = END, degrees clockwise from three o'clock, as DIRECTIONS from the ellipse's centre. The frame is NOT the ellipse's box: it is the box of the arc together with the centre. Rotating an arc changes its reported frame, so a rotated arc cannot be rebuilt.**
+
+```text
+AddShape 300x100       L=  100.00 T=  200.00 W=  300.00 H=  100.00 rot=    0 flipH= 0 adj=-90.00,0.00
+adjusted to 0..45      L=  100.00 T=  300.00 W=  300.00 H=   94.87 rot=    0 flipH= 0 adj=0.00,45.00
+  direction predicts L=100 T=300 W=300 H=94.87; parameter predicts H=70.71
+adjusted to -30..200   L= -200.05 T=  213.40 W=  600.10 H=  186.62 rot=    0 flipH= 0 adj=-30.00,-160.00
+rotated 30             L=  100.00 T=  300.00 W=  259.81 H=  173.21 rot=   30 flipH= 0 adj=0.00,45.00
+flipped horizontally   L= -200.00 T=  300.00 W=  300.00 H=   94.87 rot=    0 flipH=-1 adj=0.00,45.00
+Width = 150            L=  100.00 T=  300.00 W=  150.00 H=   94.87 rot=    0 flipH= 0 adj=0.00,63.43
+```
+
+### What this means for AlignPro
+
+- **Probe 7:** `ShapeCreator` needs nothing beyond the `StartNewUndoEntry` every verb already calls.
+  One Ctrl+Z removes every copy a Duplicate made and nothing before it. The ribbon-click harness
+  repeats this through a real click.
+- **Probe 8:** `ShapeRange.Duplicate` hands its copies back in **z-order, not in the order of the
+  range** - `Front, Back, Middle` came back as copies of `Back, Middle, Front`. Matching copies to
+  placements by position would therefore put copies in the wrong place whenever the selection
+  order differs from the stacking, which is the usual case. So `ShapeCreator` duplicates one shape
+  at a time, back to front, and each copy's identity is certain. The 12pt offset needs no undoing,
+  because the placement written straight after is absolute.
+- **Probe 9:** nodes come back **exactly where they are drawn**, rotation and flips already applied.
+  The plan had assumed the opposite, and turning them again would have turned a rotated path twice.
+  `CurveSolver` takes path nodes as they are and transforms only the kinds it builds from the frame.
+  Two smaller points: a straight line reports no nodes at all, so it is its own curve kind, built
+  corner to corner from the frame and its flips; and a closed freeform does **not** repeat its first
+  node, so there is no way to tell it from an open one. Freeforms are followed from their first node
+  to their last, and the closing segment is not used - use an oval to go all the way round.
+- **Probe 10** was the surprise. An Arc's frame is **not** the box of its ellipse, which is what the
+  plan assumed. It is the box of the arc *together with the ellipse's centre* - a pie slice's box -
+  and PowerPoint resizes it whenever the angles change, keeping the ellipse fixed. So the default
+  quarter has its centre at the frame's bottom-left corner and an ellipse twice the frame each way.
+  The angles are directions from the centre, not the ellipse's parameter: the 94.87pt height fits
+  only the direction reading. `CurveSolver.SampleArc` rebuilds the ellipse from the frame and the two
+  angles - one unknown, the ratio of the radii, solved by bisection - and reproduces all three frames
+  above exactly. Flipping mirrors the frame about the ellipse's centre, so the arc is still the
+  unflipped arc mirrored within its current frame. **Rotation changes the reported frame's size**,
+  which no longer describes the ellipse at all, so a rotated arc is refused with the reason rather
+  than followed wrongly. Resizing rewrites the angles to match, so the frame and angles always agree.
+
+  The first version of this probe tried to answer the question by exporting the slide and reading
+  pixels where each reading put the stroke. It found no stroke anywhere, because the stroke was not
+  in the frame at all. Rendering by eye is what showed why.

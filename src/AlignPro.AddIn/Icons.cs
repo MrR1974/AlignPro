@@ -56,8 +56,8 @@ namespace AlignPro.AddIn
                     "btnAlignTop" => Align(32, Edge.Top),
                     "btnAlignCentreV" => Align(32, Edge.CentreV),
                     "btnAlignBottom" => Align(32, Edge.Bottom),
-                    "btnDistributeH" => Distribute(32, horizontal: true),
-                    "btnDistributeV" => Distribute(32, horizontal: false),
+                    "btnDistributeH" => Distribute(16, horizontal: true),
+                    "btnDistributeV" => Distribute(16, horizontal: false),
                     "btnMatchWidth" => MatchWidth(16),
                     "btnMatchHeight" => MatchHeight(16),
                     "btnMatchBoth" => MatchBoth(16),
@@ -65,6 +65,10 @@ namespace AlignPro.AddIn
                     "btnGrid" => Grid(16),
                     "btnOrderStack" => Stack(32, firstOnTop: true),
                     "btnOrderReverse" => Stack(32, firstOnTop: false),
+                    "btnMatchRotation" => MatchRotation(16),
+                    "tbRotateShapes" => RotateShapes(16),
+                    "btnDuplicate" => Duplicate(32),
+                    "btnDistributeCurve" => DistributeCurve(16),
                     _ => null
                 };
 
@@ -302,6 +306,92 @@ namespace AlignPro.AddIn
                     g.CompositingMode = CompositingMode.SourceOver;
 
                     Fill(g, accented ? accent : ink, u, at, at, card, card);
+                }
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>
+        /// A square turned to an angle about its centre. The one icon family that cannot stay on the
+        /// pixel grid - an angle is the whole meaning - so it is drawn anti-aliased, on a transform.
+        /// </summary>
+        private static void FillTurnedSquare(Graphics g, Brush brush, float centreX, float centreY, float side, float degrees)
+        {
+            var state = g.Save();
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TranslateTransform(centreX, centreY);
+            g.RotateTransform(degrees);
+            g.FillRectangle(brush, -side / 2, -side / 2, side, side);
+            g.Restore(state);
+        }
+
+        /// <summary>Two squares of different sizes turned to the same angle.</summary>
+        private static Bitmap MatchRotation(int size)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            {
+                FillTurnedSquare(g, accent, 4.5f * u, 4.5f * u, 5 * u, 30);
+                FillTurnedSquare(g, ink, 10.5f * u, 10.5f * u, 7 * u, 30);
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>An upright outline with the same square turned inside it: the shape follows the turn.</summary>
+        private static Bitmap RotateShapes(int size)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            {
+                Outline(g, ink, u, 1, 1, 14, 14);
+                FillTurnedSquare(g, accent, 8f * u, 8f * u, 7 * u, 45);
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>
+        /// An original and two copies stepping away from it on a diagonal. The copies are outlines,
+        /// so the original reads as the solid thing they came from.
+        /// </summary>
+        private static Bitmap Duplicate(int size)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            {
+                Fill(g, ink, u, 1, 1, 6, 6);
+                Outline(g, accent, u, 5, 5, 6, 6);
+                Outline(g, accent, u, 9, 9, 6, 6);
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>A ring with shapes spaced evenly round it: the radial layout the verb makes.</summary>
+        private static Bitmap DistributeCurve(int size)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var pen = new Pen(Ink, u))
+            using (var accent = new SolidBrush(Accent))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.DrawEllipse(pen, 3f * u, 3f * u, 10f * u, 10f * u);
+
+                for (var i = 0; i < 6; i++)
+                {
+                    var angle = (i * 60 - 90) * Math.PI / 180.0;
+                    var x = 8f * u + (float)(5 * u * Math.Cos(angle));
+                    var y = 8f * u + (float)(5 * u * Math.Sin(angle));
+                    FillTurnedSquare(g, accent, x, y, 3f * u, i * 60);
                 }
             }
 

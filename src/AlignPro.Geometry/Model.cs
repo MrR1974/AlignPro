@@ -120,16 +120,35 @@ namespace AlignPro.Geometry
     }
 
     /// <summary>
-    /// One shape's new frame. The solver always emits frame coordinates, whatever bounds model the
-    /// request asked for, because the frame is the only thing PowerPoint lets us write.
+    /// One shape's new frame, and optionally its new rotation. The solver always emits frame
+    /// coordinates, whatever bounds model the request asked for, because the frame is the only
+    /// rectangle PowerPoint lets us write.
     /// </summary>
+    /// <remarks>
+    /// Rotation is optional rather than always carried, and that is load-bearing: a change that
+    /// carries no rotation leaves the shape's angle alone, so the align verbs cannot clobber a
+    /// rotation they never read. PowerPoint rotates about the frame's centre, so a rotation-only
+    /// change leaves the frame untouched and the two never interfere.
+    /// </remarks>
     public sealed class GeometryChange
     {
-        public GeometryChange(ShapeKey key, RectD oldFrame, RectD newFrame)
+        /// <summary>How close two angles must be, in degrees, to count as the same.</summary>
+        public const double AngleEpsilon = 1e-4;
+
+        public GeometryChange(
+            ShapeKey key, RectD oldFrame, RectD newFrame, double? oldRotation = null, double? newRotation = null)
         {
+            if (oldRotation.HasValue != newRotation.HasValue)
+            {
+                throw new ArgumentException(
+                    "A rotation change needs both the old and the new angle, or neither.", nameof(newRotation));
+            }
+
             Key = key;
             OldFrame = oldFrame;
             NewFrame = newFrame;
+            OldRotation = oldRotation;
+            NewRotation = newRotation;
         }
 
         public ShapeKey Key { get; }
@@ -139,17 +158,44 @@ namespace AlignPro.Geometry
 
         public RectD NewFrame { get; }
 
-        /// <summary>True when the frame would not actually move, so the apply step can skip it.</summary>
-        public bool IsNoOp => OldFrame.ApproximatelyEquals(NewFrame);
+        /// <summary>The clockwise angle in degrees as it was, or null when rotation is not changing.</summary>
+        public double? OldRotation { get; }
 
-        /// <summary>
-        /// The same change running backwards, ready to apply as an undo. No verb changes rotation -
-        /// the solver only ever emits frames - so swapping the two frames is a complete inverse.
-        /// </summary>
-        public GeometryChange Inverted() => new GeometryChange(Key, NewFrame, OldFrame);
+        /// <summary>The clockwise angle in degrees to write, or null to leave the angle alone.</summary>
+        public double? NewRotation { get; }
 
-        public override string ToString() =>
-            string.Format(CultureInfo.InvariantCulture, "{0}: {1} -> {2}", Key, OldFrame, NewFrame);
+        /// <summary>True when this change touches the angle at all.</summary>
+        public bool ChangesRotation =>
+            OldRotation.HasValue && NewRotation.HasValue && !SameAngle(OldRotation.Value, NewRotation.Value);
+
+        /// <summary>True when nothing would actually move, so the apply step can skip it.</summary>
+        public bool IsNoOp => OldFrame.ApproximatelyEquals(NewFrame) && !ChangesRotation;
+
+        /// <summary>The same change running backwards, ready to apply as an undo.</summary>
+        public GeometryChange Inverted() => new GeometryChange(Key, NewFrame, OldFrame, NewRotation, OldRotation);
+
+        /// <summary>An angle folded into [0, 360), the range PowerPoint itself reports.</summary>
+        public static double NormaliseAngle(double degrees)
+        {
+            var folded = degrees % 360.0;
+            if (folded < 0) folded += 360.0;
+
+            // 359.99999 and 0 are the same angle; report the one PowerPoint would.
+            return folded >= 360.0 - AngleEpsilon ? 0 : folded;
+        }
+
+        /// <summary>True when two angles point the same way, however many turns apart.</summary>
+        public static bool SameAngle(double a, double b)
+        {
+            var difference = Math.Abs(NormaliseAngle(a) - NormaliseAngle(b));
+            return difference <= AngleEpsilon || difference >= 360.0 - AngleEpsilon;
+        }
+
+        public override string ToString() => NewRotation.HasValue
+            ? string.Format(
+                CultureInfo.InvariantCulture, "{0}: {1} rot={2:F1} -> {3} rot={4:F1}",
+                Key, OldFrame, OldRotation, NewFrame, NewRotation)
+            : string.Format(CultureInfo.InvariantCulture, "{0}: {1} -> {2}", Key, OldFrame, NewFrame);
     }
 
     /// <summary>

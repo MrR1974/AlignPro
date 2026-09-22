@@ -4,9 +4,9 @@ A PowerPoint add-in for aligning, distributing, sizing and tidying shapes — do
 built-in tools won't.
 
 PowerPoint's own align and distribute have no anchor alignment, no exact spacing, no "make the same
-size", no grid tidying — and they align the raw object-model rectangle, which **ignores rotation**. A
-rotated shape aligned by PowerPoint is visibly out of line. AlignPro can align on what you actually
-see.
+size", no stepped or radial duplicating, no spacing along a curve, no grid tidying — and they align
+the raw object-model rectangle, which **ignores rotation**. A rotated shape aligned by PowerPoint is
+visibly out of line. AlignPro can align on what you actually see.
 
 ---
 
@@ -156,19 +156,38 @@ size, and diverge the moment they differ:
 three edge and centre modes the number is a *pitch*; in Space between it is the *gap*. Press **Enter**
 to commit the value.
 
-### Match size
+**Along curve** places the shapes on a curve instead of a line. Select the shapes, then Ctrl+click
+the curve **last**: an oval, an arc, a straight line or a freeform.
+
+| Curve | Where the shapes go |
+|---|---|
+| **Oval** | All the way round from twelve o'clock, clockwise, evenly spaced. The last does not land on the first |
+| **Arc** | From one end to the other, both ends included |
+| **Line or freeform** | From the first point to the last, both ends included |
+
+Shapes are spaced by distance along the curve, so a flattened oval does not bunch them at its narrow
+ends. **Exact (pt)** sets that distance. **Rotate shapes**, in the Duplicate group, turns each shape
+to follow the curve; turn it off and they keep their angle. Two limits: a *rotated* arc is refused,
+because PowerPoint stops reporting its true shape once it is turned, and a closed freeform is
+followed as if it were open, since PowerPoint does not say which it is. For a full loop, use an oval.
+
+### Match
 
 **Width**, **Height** or **Both**, matched to the anchor — select the others first, then the shape to
 match **last**. **From centre** holds each shape's centre while resizing instead of its top-left
 corner.
 
-Groups are skipped, and AlignPro tells you why: resizing a group rescales the gaps between its
+**Rotation** turns every shape to the anchor's angle, about each shape's own centre. Only the angle
+changes: position, size and flips stay as they are. It works on groups too.
+
+Groups are skipped by the resize buttons, and AlignPro tells you why: resizing a group rescales the gaps between its
 children, which silently distorts a diagram. A group makes a perfectly good *anchor*, though — it's
 only measured, never resized.
 
-**Margin (pt)** makes the shapes a set amount *smaller* than the anchor rather than the same size. It
-is measured **per side**, so a margin of 10 leaves a 10pt border showing all the way round and takes 20
-off each dimension. Negative numbers make the shapes larger instead. (This is the match-size margin —
+**Margin (pt)** makes the shapes a set amount *smaller* or *larger* than the anchor rather than the
+same size. It is measured **per side**, so a margin of 10 leaves a 10pt border all the way round and
+changes each dimension by 20. The number is always positive; **Direction** decides which way it goes:
+**Shrink** puts the shapes inside the anchor, **Grow** outside it. (This is the match-size margin —
 not the slide margin in **Align to**, which is a separate setting that happens to share the name.)
 
 **Apply margin** decides how far that goes:
@@ -177,7 +196,7 @@ not the slide margin in **Align to**, which is a separate setting that happens t
 |---|---|
 | **Off** | Ignore the margin and match the anchor exactly. |
 | **All the same** | Every shape ends one margin inside the anchor, so they all come out the same size. |
-| **Cascade** | The margin accumulates along the order you selected in, so the shapes tier — and the shape you selected **first** ends smallest. |
+| **Cascade** | The margin accumulates along the order you selected in, so the shapes tier. With Shrink the shape you selected **first** ends smallest; with Grow it ends **largest**. |
 
 For concentric rings, turn **From centre** on, use **Cascade**, and select the outermost shape last.
 Slide 9 of the sample deck walks through it.
@@ -200,6 +219,32 @@ stacked within its group rather than against the slide, so AlignPro refuses rath
 **Grid** tidies a scatter into even rows and columns, keeping each shape near where it already was.
 Sizes are never changed, so it's safe on groups. Leave **Columns** blank for a near-square grid.
 
+### Duplicate
+
+Makes copies of the selection, each one step on from the one before. A step is: turn by **Angle**
+about the **Pivot**, then move by **X** and **Y**. **Copies** says how many.
+
+| To get | Set |
+|---|---|
+| A row | X (or Y), Angle 0 |
+| A ring | Angle, Pivot = Slide centre or Anchor centre |
+| A spiral | Both: an Angle round a far pivot, and an X |
+
+| Pivot | Turns about |
+|---|---|
+| **Own centre** | Each shape's own centre, so the angle spins shapes in place |
+| **Selection centre** | The middle of the whole selection, which turns as one piece |
+| **Anchor centre** | The shape you selected last |
+| **Slide centre** | The middle of the slide |
+
+**Rotate shapes** on turns each copy with the step. Off, the copies keep the original's angle and
+only their positions go round, like upright numbers on a clock face.
+
+Several shapes are copied as a unit, keeping their layout, and groups stay groups. Afterwards the
+originals and all the copies are left selected, ready for the next command. One undo removes every
+copy. For a radial array, duplicate a shape, then use **Along curve** to space the copies round an
+oval.
+
 ---
 
 ## Two things worth knowing
@@ -210,7 +255,8 @@ difference is only that AlignPro's Undo and Redo name the operation they'll reve
 this was not true: an add-in's changes joined a single undo entry that could cover far more than your
 last action — in testing, one Ctrl+Z removed four slides. Upgrade if you are on an older version.)
 
-**The settings are sticky.** Reference, Measure, Space by, Exact (pt) and Margin (pt) persist until you change them,
+**The settings are sticky.** Reference, Measure, Space by, Exact (pt), Margin (pt), Direction and the
+Duplicate step persist until you change them,
 including across slides. If a result looks wrong, check those two dropdowns first — a `Reference` left
 on **Anchor** makes Grid lay out inside a single shape's bounds, which looks like the shapes have
 collapsed into a corner.
@@ -219,14 +265,15 @@ collapsed into a corner.
 
 ## Try it
 
-A thirteen-slide sample deck is **installed alongside the add-in**, at
+A seventeen-slide sample deck is **installed alongside the add-in**, at
 `%LOCALAPPDATA%\AlignPro\AlignPro-Sample.pptx`. It is also here in the repository at
 [`sample/AlignPro-Sample.pptx`](sample/AlignPro-Sample.pptx).
 
 One slide per capability, each captioned with what to try and what should happen. Slide 2 is the one
 to start with — align left with **Measure = Shape frame**, undo, then again with **Visual bounds**,
-and watch the rotated shape. Slides 7 to 9 cover ordering and the match-size margin, ending with a
-concentric-rings slide that uses both together.
+and watch the rotated shape. Slides 7 to 10 cover ordering and the match-size margin, with a
+concentric-rings slide that uses both together and then Grow. Slides 15 to 17 cover Match rotation,
+Duplicate and Along curve.
 
 ---
 ## Building from source
@@ -285,14 +332,14 @@ behaviours are not what the documentation implies.
 Three layers, because each catches what the others cannot:
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 136, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 7, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 8, real ribbon clicks
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 231, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 34, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 25, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over
 cross-process COM, where no Office command is in flight — which is not the context a ribbon callback
-runs in. A bug where Align Left silently did nothing when clicked passed all seven of those checks.
+runs in. A bug where Align Left silently did nothing when clicked passed every one of those checks.
 `Test-RibbonClicks.ps1` clicks the actual ribbon through UI Automation, so Office dispatches the
 command exactly as it would for a person.
 

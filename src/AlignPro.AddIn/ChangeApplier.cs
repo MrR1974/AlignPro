@@ -22,7 +22,8 @@ namespace AlignPro.AddIn
     }
 
     /// <summary>
-    /// Writes new frames back to PowerPoint. The only place in the add-in that mutates the document.
+    /// Writes new frames and angles back to PowerPoint, and restacks. With <see cref="ShapeCreator"/>,
+    /// the only place in the add-in that mutates the document.
     /// </summary>
     internal static class ChangeApplier
     {
@@ -83,7 +84,7 @@ namespace AlignPro.AddIn
                     try
                     {
                         shape = shapes[index];
-                        ApplyFrame(shape, change.NewFrame);
+                        ApplyChange(shape, change);
                         applied++;
                     }
                     catch (COMException)
@@ -216,7 +217,7 @@ namespace AlignPro.AddIn
         /// <summary>
         /// The shape with this id, or null when it is gone. Released by the caller.
         /// </summary>
-        private static PowerPoint.Shape? FindById(PowerPoint.Shapes shapes, int id)
+        internal static PowerPoint.Shape? FindById(PowerPoint.Shapes shapes, int id)
         {
             for (var i = 1; i <= shapes.Count; i++)
             {
@@ -241,10 +242,26 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>
+        /// Writes one change: the angle when the change carries one, then the frame. The order does
+        /// not matter to PowerPoint - it rotates about the frame's centre and reports the unrotated
+        /// frame whatever the angle - but a change with no angle must leave the angle alone.
+        /// </summary>
+        internal static void ApplyChange(PowerPoint.Shape shape, GeometryChange change)
+        {
+            if (change.NewRotation.HasValue &&
+                !GeometryChange.SameAngle(shape.Rotation, change.NewRotation.Value))
+            {
+                shape.Rotation = (float)GeometryChange.NormaliseAngle(change.NewRotation.Value);
+            }
+
+            ApplyFrame(shape, change.NewFrame);
+        }
+
+        /// <summary>
         /// Writes only the properties that actually differ. Size goes first: setting Width or Height
         /// holds the top-left corner, so position is applied afterwards and wins either way.
         /// </summary>
-        private static void ApplyFrame(PowerPoint.Shape shape, RectD frame)
+        internal static void ApplyFrame(PowerPoint.Shape shape, RectD frame)
         {
             const float tolerance = 1e-4f;
 

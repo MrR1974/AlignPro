@@ -288,6 +288,20 @@ public class MatchSizeMarginTests
     }
 
     [Fact]
+    public void Cascade_WithGrow_MakesTheFirstSelectedLargest()
+    {
+        // What the ribbon's Direction = Grow sends: the same positive margin, negated. With the
+        // anchor last, the cascade that made the first shape smallest now makes it largest - the
+        // screentips promise exactly this, so it is pinned here.
+        var result = Match(AlignVerb.MatchBoth, ThreeThenAnchor(), -10, SizeMarginMode.Cascade, anchorId: 9);
+
+        Assert.Equal(260, result.FrameOf(1).Width, Tolerance);
+        Assert.Equal(240, result.FrameOf(2).Width, Tolerance);
+        Assert.Equal(220, result.FrameOf(3).Width, Tolerance);
+        Assert.Equal(160, result.FrameOf(1).Height, Tolerance);
+    }
+
+    [Fact]
     public void MatchWidth_LeavesHeightAloneEvenWithAMargin()
     {
         var result = Match(AlignVerb.MatchWidth, ThreeThenAnchor(), 10, SizeMarginMode.Uniform, anchorId: 9);
