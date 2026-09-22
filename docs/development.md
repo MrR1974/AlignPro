@@ -296,6 +296,62 @@ Three design decisions that came out of measurement rather than preference:
 | 3c. Automated end-to-end tests | **Done** — 161 unit tests, 13 COM checks, and 13 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
+| 6. Grow or shrink by the match-size margin | **Planned** — see [Next features](#next-features) |
+| 7. Rotation in changes, then Match rotation | **Planned** |
+| 8. Object-model spike for duplicate and paths | **Planned** |
+| 9. Created shapes in transactions, then Duplicate | **Planned** |
+| 10. Distribute on a circle, arc or path | **Planned** |
+
+### Next features
+
+Planned 2026-09-23, in build order. Each step ships on its own with unit tests, COM and ribbon-click
+checks, and a sample-deck slide.
+
+**6. Grow or shrink by the margin.** The solver already grows shapes on a negative `SizeMargin`, in
+both `Uniform` and `Cascade` (`NegativeMargin_GrowsTheShapesInstead`,
+`Cascade_GrowsShapesSelectedAfterTheAnchor`), so this is ribbon-only. Add a **Direction** dropdown
+(Shrink / Grow) beside **Apply margin**; the margin box accepts only positive values and the
+direction supplies the sign. A negative entry is refused with a pointer to Grow. With Cascade and
+Grow, the shape selected first ends **largest** — the screentips and README must say so.
+
+**7. Rotation in changes, then Match rotation.** `GeometryChange` carries frames only, and its
+`Inverted()` relies on "no verb changes rotation". Add `OldRotation`/`NewRotation`, swap them in
+`Inverted()`, and have `ChangeApplier` write `Rotation`. PowerPoint rotates about the frame's centre,
+so a rotation-only change leaves the frame untouched. Match rotation is then a **Rotation** button in
+Match size: every shape takes the anchor's angle. Angle only, not flips. Groups are allowed, since
+rotation is rigid.
+
+**8. Object-model spike.** Measure before building, and record in `object-model-findings.md`:
+- Does `Shape.Duplicate()` / `ShapeRange.Duplicate()` stay inside the entry `StartNewUndoEntry` opened?
+- Where do duplicates land in the z-order, and does the default duplicate offset need undoing before
+  the absolute position is written?
+- Which coordinate space do `Shape.Nodes` report for a rotated or flipped freeform?
+- How do the Arc autoshape's adjustments map to start and end angles?
+
+**9. Created shapes in transactions, then Duplicate.** `AlignTransaction` gains a list of created
+shapes; undo deletes them. Redo re-runs the duplicate from the originals and rewrites the keys, since
+recreated shapes get new ids. `DuplicateSolver` is a separate pure entry point, shaped like
+`ZOrderSolver`: selection plus `dx`, `dy`, `angle`, pivot and copies in, per-copy frame and rotation
+out, copy *k* receiving the step *k* times. Decided:
+- One step may both rotate and translate: rotate about the pivot, then translate. A zero field is inert.
+- **Pivot** dropdown: own centre, selection centre, anchor centre, slide centre.
+- **Rotate shapes** toggle, default on: copies turn with the step; off, they stay upright and only
+  their positions follow the rotation.
+- A multi-shape selection is duplicated as a unit, keeping its internal layout; groups stay groups.
+- Originals and copies are left selected, ready for the next verb.
+- New ribbon group: X, Y, Angle, Copies, Pivot, Rotate shapes, Duplicate. Build translation first,
+  then rotation.
+
+**10. Distribute on a circle, arc or path.** The anchor defines the curve; the other shapes' centres
+are placed along it in selection order.
+- **Ellipse:** a full circuit of n even slots, no overlap at 360°. Spaced by arc length, not angle,
+  so non-circular ellipses do not bunch at the ends.
+- **Arc autoshape:** end to end, both ends included, angles from its adjustments.
+- **Any path:** freeform, line or curve read from `Nodes`, flattened to a polyline and placed by arc
+  length. The geometry stays in `AlignPro.Geometry`; the reader only converts.
+- **Exact (pt)** is reused as the spacing along the curve.
+- The same **Rotate shapes** toggle as Duplicate orients each shape to the tangent.
+- Circle and arc first, then arbitrary paths. Duplicate then distribute-on-circle gives radial arrays.
 
 ### Known limitations
 
