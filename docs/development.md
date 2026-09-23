@@ -323,6 +323,10 @@ Three design decisions that came out of measurement rather than preference:
 | 8. Object-model spike for duplicate and paths | **Done** — probes 7 to 10; two of the plan's assumptions were wrong, see [Next features](#next-features) |
 | 9. Created shapes in transactions, then Duplicate | **Done** |
 | 10. Distribute on a circle, arc or path | **Done** — rotated arcs refused, closed freeforms followed as open |
+| 11. Tidy: snap near-alignments | **Planned** — see [Tidy](#tidy) |
+| 12. Tidy: even out near-even spacing | **Planned** |
+| 13. Tidy on the ribbon | **Planned** |
+| 14. Tidy the whole slide | **Planned** — only after 13 has had real use |
 
 ### Next features
 
@@ -381,6 +385,109 @@ Space by and Exact (pt) in a second. Duplicate opens a gap between the step and 
 label of one Braille blank (U+2800). Three simpler ways failed: Office leaves out a label that is only
 non-breaking or figure spaces, a disabled spacer button draws a grey square, and a
 separator adds a line where only space was wanted.
+
+### Tidy
+
+Planned 2026-09-23, not yet built. **Tidy** finds shapes that are *nearly* aligned or *nearly* evenly
+spaced and makes them exact. It fixes a slide that was built by eye: the box 2pt left of its
+neighbours, or the row whose gaps are 18, 20 and 21pt. It never guesses a layout that is not already
+almost there. Each step below ships on its own with unit tests, and steps 13 and 14 also need COM and
+ribbon-click checks and a sample-deck slide.
+
+**Not using Copilot.** Considered and rejected for now:
+- Only Office.js add-ins that use the unified manifest can act as a Copilot skill, and that is in
+  preview. A VSTO add-in cannot.
+- Copilot's view of a PowerPoint slide is its text, not shape positions, so it would only add a
+  natural-language way in.
+- Language models are unreliable at exact coordinate arithmetic, and this problem is deterministic.
+- It would need a Copilot licence for every user and a hosted web add-in. That breaks the no-admin
+  install.
+
+The one thing a model could add is telling a sloppy layout from a deliberate one. If that is ever
+wanted, an optional call to a model API with a picture of the slide and the snapshots would do it,
+without Copilot. It is not part of this plan.
+
+**The shape of it.** `TidySolver` is a separate entry point beside `CurveSolver`, because it has no
+verb or reference: it decides for itself what to align. It takes a `TidyRequest` (tolerance, bounds
+model, what to fix) and the snapshots. It returns an ordinary `SolveResult` of translations, so it
+gets the rest without extra work: one native undo entry, labelled undo, the Measure setting and rigid
+groups. It **only moves shapes**. It never resizes or rotates, and its changes carry no angle.
+
+**11. Snap near-alignments.** Each axis is solved on its own, since a translation on one axis
+cannot disturb the other.
+1. **Find candidates.** For each of the three features on the axis (left, centre and right, or top,
+   middle and bottom), sort every shape's value in the requested bounds. Sweep the sorted values
+   into clusters, adding a value while it is within the tolerance of the cluster's *lowest* value.
+   The spread of a cluster therefore never exceeds the tolerance, so a chain of values each 2pt
+   apart cannot grow into one 10pt cluster. A cluster needs two or more shapes.
+2. **Lock what is already exact.** A cluster whose spread is within `RectD.Epsilon` is an alignment
+   the user already has. Its members are locked on that axis. Tidy must never break an exact
+   alignment to make a near one.
+3. **Pick a target.** Snap to a *member's* value, never a computed one, so at least one shape stays
+   still. Use the member that minimises total movement (the median), and break ties by `ShapeId`.
+   A placeholder holds still: moving it overrides the layout's position. A cluster containing
+   a placeholder therefore snaps to it, and one containing two placeholders that disagree is
+   skipped.
+4. **Settle conflicts.** A shape moves at most once per axis. Take clusters by member count, largest
+   first, then by spread, tightest first. Accept a cluster only if every member is free or already
+   at the target. An accepted cluster's members then count as moved. The rest are skipped, not
+   partly applied.
+
+Tolerance defaults to 3pt, accepts 0.5 to 20pt, and a value outside that range is refused. The
+algorithm is a single pass. **Tidy must be idempotent:** a second run straight after the first
+finds nothing to do. That is a test, and the lock rule is what makes it hold.
+
+**12. Even out near-even spacing.** This runs after step 11, on the moved positions.
+- A **row** is three or more shapes in one accepted or locked top/middle/bottom cluster that do not
+  overlap horizontally, sorted by X. A **column** is the same on the other axis.
+- Measure the gaps and the centre-to-centre pitches. If one of them varies by no more than the
+  tolerance, make it exact, holding the outer two shapes still, as Distribute already does.
+  If both qualify, use the one that varies less. Leading and trailing edge are not considered, since
+  they only differ from centre when sizes differ, and then the gap is what the eye reads.
+- Spacing loses to alignment. A row is skipped if evening it would move a shape that step 11 already
+  moved or locked on that axis. In a grid, the column alignments usually win and the row spacing is
+  left alone.
+  **Open question:** spacing the *column targets* evenly, rather than the shapes, would fix both
+  at once. Try it only if grids come out looking unfinished.
+
+**13. Tidy on the ribbon.**
+- In the **Arrange** group: a **Tidy** button and a **Tolerance (pt)** box that persists like the
+  other settings. Recheck that the tab still fits in a 1680px window with `autoScale`.
+- Selection only, two or more shapes. Measure is honoured like every other verb: with **Shape frame**,
+  a rotated shape is judged by its frame. The README should point to Visual bounds, just as it does
+  for Align.
+- **Connectors are left out.** They are neither measured nor moved, because they re-route when the
+  shapes they join move. `ShapeSnapshot` gains `IsConnector`, which the reader fills from
+  `Shape.Connector`. Plain lines take part.
+- **It always reports**, because a 2pt fix is invisible. "Tidied 5 shapes: 3 alignments, 1 row", or
+  "Nothing to tidy: no shapes are within 3pt of lining up". It uses `OkWithNotice` even on
+  success. Connectors left out and clusters skipped over a conflict are both listed.
+- The undo label is "Undo tidy".
+- A sample-deck slide (18) should include: a jittered 3×3 grid; a near-aligned row with uneven gaps;
+  a deliberate 6pt stagger that Tidy must leave alone at 3pt; a rotated shape that is flush only by
+  Visual bounds; a connector; and a placeholder that others snap to.
+
+**14. Tidy the whole slide.** With nothing selected, Tidy works on every top-level shape. The reader
+already walks `slide.Shapes` for z-order, and would read snapshots in the same walk. This is where a
+false positive costs most, because the user did not choose the shapes, so it waits until 13 has had
+real use. It may need a lower default tolerance.
+
+**Tests to write first** (`TidyTests.cs`):
+- One shape 2pt off a left edge snaps to the other two, and the two do not move.
+- With a 3pt tolerance, values of 0, 2, 4 and 6pt do not collapse into one cluster.
+- A 6pt stagger is left alone at 3pt.
+- An exact centre alignment survives, even when a near left alignment would break it.
+- Two clusters that compete for a shape: the larger wins and the other is skipped whole.
+- A placeholder holds still, and two disagreeing placeholders skip the cluster.
+- Connectors are neither measured nor moved.
+- Groups translate rigidly.
+- No change carries a rotation.
+- A rotated shape is judged by its visual bounds when asked.
+- Gap spacing is chosen over centre spacing when it varies less, and the reverse.
+- A row whose alignment moves would conflict is skipped.
+- A regular grid jittered by up to ±1pt comes back exactly aligned and evenly spaced.
+- A second run is a no-op.
+- A tolerance of zero or outside 0.5 to 20pt is refused.
 
 ### Known limitations
 
