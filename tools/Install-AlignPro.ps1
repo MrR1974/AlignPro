@@ -224,8 +224,8 @@ Write-Host "  installed to                  $InstallPath"
 # LoadBehavior to 2, and the add-in simply never appears - with nothing to show why.
 #
 # Nothing should be marked when the package came through install.ps1: Invoke-WebRequest writes no
-# Zone.Identifier and .NET's ZipFile does not propagate one. Explorer's own extractor does, so this
-# stays as the safety net for the hand-unzip route.
+# Zone.Identifier, so the zip has no mark to pass on. A zip the browser downloaded does, and Explorer's
+# extractor copies it onto every file, so this stays as the safety net for the hand-unzip route.
 $blocked = 0
 foreach ($file in $installed) {
     $full = Join-Path $InstallPath $file

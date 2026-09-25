@@ -14,8 +14,8 @@
     release, forever. A self-signed certificate behaves identically to no signature.
 
     Fetching over HTTPS from inside PowerShell avoids that path entirely, and also avoids the mark of
-    the web: Invoke-WebRequest writes no Zone.Identifier stream, and .NET's ZipFile does not propagate
-    one, so no file ever needs unblocking. A script downloaded to disk and run by path would be refused
+    the web: Invoke-WebRequest writes no Zone.Identifier stream, so the zip carries no mark for its
+    extraction to pass on and no file ever needs unblocking. A script downloaded to disk and run by path would be refused
     by the AuthorizationManager check even with the execution policy at Unrestricted - which is the
     problem this replaces.
 
@@ -120,7 +120,9 @@
         # --- verify ----------------------------------------------------------------------------------
         # The checksum file is written sha256sum-style: "<hash>  <filename>".
         $expected = (((Get-Content -LiteralPath $sumFile -Raw) -split '\s+') | Where-Object { $_ })[0].ToLowerInvariant()
-        # .NET rather than Get-FileHash, for the reason given at the extract below.
+        # .NET rather than Get-FileHash, which lives in a script module PowerShell has to find on first
+        # use. Windows PowerShell started from PowerShell 7 inherits 7's module paths, finds the wrong
+        # Microsoft.PowerShell.Utility, and then reports that Get-FileHash does not exist.
         $sha = [System.Security.Cryptography.SHA256]::Create()
         $stream = [System.IO.File]::OpenRead($zipFile)
         try { $actual = -join ($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) }
@@ -132,17 +134,23 @@
         Write-Host "  verified                      SHA-256 matches the published checksum"
 
         # --- extract ---------------------------------------------------------------------------------
-        # .NET directly rather than Expand-Archive, which has been seen to hang here. Expand-Archive and
-        # Get-FileHash both live in modules PowerShell loads on first use, and finding a module means
-        # searching every folder on PSModulePath - the first of which is usually Documents, redirected
-        # to OneDrive on managed machines, where a paused or signing-in OneDrive stalls the search. A
-        # PSModulePath inherited from PowerShell 7 breaks it differently, by offering 5.1 modules it
-        # cannot load. Expand-Archive also draws a progress bar that is slow on Windows PowerShell 5.1.
-        # ExtractToDirectory has none of these problems, and refuses entries that would land outside
-        # the destination folder.
+        # Windows' own tar.exe rather than anything inside PowerShell. Expand-Archive has been seen to
+        # hang here, and the step it was stuck on is its own `Add-Type -AssemblyName
+        # System.IO.Compression.FileSystem`, which fails the same way when called directly. Loading
+        # assemblies from a downloaded script is exactly what endpoint security watches for, so on a
+        # managed machine it can be held or refused, while a signed Windows executable is not. tar has
+        # shipped with Windows since 10 1803, reads zips, and will not write outside the destination.
+        # The full path matters: Git for Windows puts its own tar on PATH, and that one cannot read a
+        # zip. System32 is right for 32-bit PowerShell too, which is redirected to its own copy.
         $extracted = Join-Path $staging 'package'
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipFile, $extracted)
+        $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+        if (-not (Test-Path -LiteralPath $tar)) {
+            Fail 'This version of Windows has no tar.exe to extract the download with.' `
+                 "Download $zipName from https://github.com/$repo/releases, extract it, and run 'Install AlignPro.cmd' inside it."
+        }
+        New-Item -ItemType Directory -Path $extracted -Force | Out-Null
+        & $tar -xf $zipFile -C $extracted
+        if ($LASTEXITCODE -ne 0) { throw "tar.exe could not extract $zipName (exit code $LASTEXITCODE)." }
         Write-Host "  extracted                     $extracted"
 
         $installer = Join-Path $extracted 'Install-AlignPro.ps1'
