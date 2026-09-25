@@ -83,13 +83,23 @@ $extras = @(
     'AlignPro-Sample.pptx'
 )
 
+# Run by path (the .cmd, or by hand) this is a script file; handed over by install.ps1 it is a script
+# block inside someone's interactive session, where `exit` closes their PowerShell window before they
+# can read why. Captured here because inside Fail $MyInvocation describes the function instead.
+$runAsFile = $MyInvocation.MyCommand.CommandType -eq 'ExternalScript'
+
 function Fail {
     param([string] $Message, [string] $Remedy)
     Write-Host ''
     Write-Host $Message -ForegroundColor Red
     if ($Remedy) { Write-Host $Remedy -ForegroundColor Yellow }
     Write-Host ''
-    exit 1
+    if ($runAsFile) { exit 1 }
+
+    # Already said above, so the caller should stop without saying it again.
+    $reported = [System.Exception]::new($Message)
+    $reported.Data['AlignPro.Reported'] = $true
+    throw $reported
 }
 
 Write-Host ''
