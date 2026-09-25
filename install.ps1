@@ -14,7 +14,7 @@
     release, forever. A self-signed certificate behaves identically to no signature.
 
     Fetching over HTTPS from inside PowerShell avoids that path entirely, and also avoids the mark of
-    the web: Invoke-WebRequest writes no Zone.Identifier stream, and Expand-Archive does not propagate
+    the web: Invoke-WebRequest writes no Zone.Identifier stream, and .NET's ZipFile does not propagate
     one, so no file ever needs unblocking. A script downloaded to disk and run by path would be refused
     by the AuthorizationManager check even with the execution policy at Unrestricted - which is the
     problem this replaces.
@@ -120,7 +120,11 @@
         # --- verify ----------------------------------------------------------------------------------
         # The checksum file is written sha256sum-style: "<hash>  <filename>".
         $expected = (((Get-Content -LiteralPath $sumFile -Raw) -split '\s+') | Where-Object { $_ })[0].ToLowerInvariant()
-        $actual = (Get-FileHash -LiteralPath $zipFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        # .NET rather than Get-FileHash, for the reason given at the extract below.
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $stream = [System.IO.File]::OpenRead($zipFile)
+        try { $actual = -join ($sha.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) }
+        finally { $stream.Dispose(); $sha.Dispose() }
         if ($expected -ne $actual) {
             Fail "The download does not match its published checksum.`n  expected  $expected`n  got       $actual" `
                  'Nothing has been installed. This is usually an interrupted download - run it again.'
@@ -128,8 +132,18 @@
         Write-Host "  verified                      SHA-256 matches the published checksum"
 
         # --- extract ---------------------------------------------------------------------------------
+        # .NET directly rather than Expand-Archive, which has been seen to hang here. Expand-Archive and
+        # Get-FileHash both live in modules PowerShell loads on first use, and finding a module means
+        # searching every folder on PSModulePath - the first of which is usually Documents, redirected
+        # to OneDrive on managed machines, where a paused or signing-in OneDrive stalls the search. A
+        # PSModulePath inherited from PowerShell 7 breaks it differently, by offering 5.1 modules it
+        # cannot load. Expand-Archive also draws a progress bar that is slow on Windows PowerShell 5.1.
+        # ExtractToDirectory has none of these problems, and refuses entries that would land outside
+        # the destination folder.
         $extracted = Join-Path $staging 'package'
-        Expand-Archive -LiteralPath $zipFile -DestinationPath $extracted -Force
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($zipFile, $extracted)
+        Write-Host "  extracted                     $extracted"
 
         $installer = Join-Path $extracted 'Install-AlignPro.ps1'
         if (-not (Test-Path $installer)) { Fail "The package does not contain Install-AlignPro.ps1." 'The release asset looks wrong; please report it.' }
