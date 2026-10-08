@@ -14,7 +14,8 @@ namespace AlignPro.AddIn
     /// This exists so the add-in can be tested without a human clicking the ribbon. Ribbon callbacks
     /// are only reachable by clicking, which made every behavioural question - especially about undo -
     /// an expensive round trip. With this, a PowerShell harness can build a deck, select shapes, run a
-    /// verb and inspect the result, end to end.
+    /// verb and inspect the result, end to end. Undo is PowerPoint's own, which a harness drives with
+    /// <c>CommandBars.ExecuteMso("Undo")</c>.
     /// </para>
     /// <para>
     /// It doubles as a macro surface: anything AlignPro can do from the ribbon can be scripted.
@@ -89,22 +90,6 @@ namespace AlignPro.AddIn
             var result = Controller.Run(parsed, verb);
             return result.Message ?? string.Empty;
         }
-
-        /// <summary>
-        /// Reverses the last AlignPro operation, exactly as the ribbon's Undo button does.
-        /// </summary>
-        /// <remarks>
-        /// AlignPro keeps its own undo stack, so a harness cannot reach it through
-        /// <c>CommandBars.ExecuteMso("Undo")</c> - that drives PowerPoint's, which is a different
-        /// thing entirely and the reason the stack exists. Ordering has no geometry for native undo to
-        /// restore either, so without this there is no way to test that path from script at all.
-        /// </remarks>
-        /// <returns>Empty on success, otherwise why nothing happened.</returns>
-        public string Undo() => Controller.UndoLast().Message ?? string.Empty;
-
-        /// <summary>Reapplies the operation just undone, as the ribbon's Redo button does.</summary>
-        /// <returns>Empty on success, otherwise why nothing happened.</returns>
-        public string Redo() => Controller.RedoLast().Message ?? string.Empty;
 
         /// <summary>
         /// Restacks the current selection. Verb names match <see cref="OrderVerb"/>, i.e.

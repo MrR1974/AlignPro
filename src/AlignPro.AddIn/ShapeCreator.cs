@@ -23,8 +23,7 @@ namespace AlignPro.AddIn
     }
 
     /// <summary>
-    /// Makes and removes the shapes behind a duplicate. The only code in the add-in that adds shapes
-    /// to a slide or deletes them.
+    /// Makes the shapes behind a duplicate. The only code in the add-in that adds shapes to a slide.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -69,13 +68,13 @@ namespace AlignPro.AddIn
                 slide = slides.FindBySlideID(slideId);
                 shapes = slide.Shapes;
 
-                var stacking = StackingOrder(shapes);
+                var stacking = StackingOrder(shapes, originals);
                 var backToFront = new List<ShapeKey>(originals);
-                backToFront.Sort((a, b) => IndexIn(stacking, a).CompareTo(IndexIn(stacking, b)));
+                backToFront.Sort((a, b) => stacking[a].CompareTo(stacking[b]));
 
                 foreach (var original in originals)
                 {
-                    if (IndexIn(stacking, original) == int.MaxValue) missing++;
+                    if (stacking[original] == int.MaxValue) missing++;
                 }
 
                 foreach (var copy in copies)
@@ -112,65 +111,6 @@ namespace AlignPro.AddIn
             }
         }
 
-        /// <summary>Deletes shapes a duplicate made. Shapes already gone are counted, not fatal.</summary>
-        public static ApplyOutcome Remove(PowerPoint.Application app, int slideId, IReadOnlyList<ShapeKey> created)
-        {
-            if (created.Count == 0) return new ApplyOutcome(0, 0);
-
-            UndoBoundary.TryClose(app);
-
-            PowerPoint.Presentation? presentation = null;
-            PowerPoint.Slides? slides = null;
-            PowerPoint.Slide? slide = null;
-            PowerPoint.Shapes? shapes = null;
-
-            var removed = 0;
-            var missing = 0;
-
-            try
-            {
-                presentation = app.ActivePresentation;
-                slides = presentation.Slides;
-                slide = slides.FindBySlideID(slideId);
-                shapes = slide.Shapes;
-
-                foreach (var key in created)
-                {
-                    PowerPoint.Shape? shape = null;
-                    try
-                    {
-                        // Looked up each time: every deletion renumbers the collection.
-                        shape = ChangeApplier.FindById(shapes, key.ShapeId);
-                        if (shape == null)
-                        {
-                            missing++;
-                            continue;
-                        }
-
-                        shape.Delete();
-                        removed++;
-                    }
-                    catch (COMException)
-                    {
-                        missing++;
-                    }
-                    finally
-                    {
-                        Com.Release(shape);
-                    }
-                }
-
-                return new ApplyOutcome(removed, missing);
-            }
-            finally
-            {
-                Com.Release(shapes);
-                Com.Release(slide);
-                Com.Release(slides);
-                Com.Release(presentation);
-            }
-        }
-
         private static ShapeKey? DuplicateOne(
             PowerPoint.Shapes shapes, int slideId, ShapeKey original, ShapePlacement placement)
         {
@@ -179,9 +119,11 @@ namespace AlignPro.AddIn
             PowerPoint.Shape? copy = null;
             try
             {
-                source = ChangeApplier.FindById(shapes, original.ShapeId);
+                source = ChangeApplier.FindAnywhere(shapes, original.ShapeId);
                 if (source == null) return null;
 
+                // A shape inside a group is copied into the same group, as PowerPoint's own Ctrl+D
+                // does (probes 20 to 22).
                 duplicated = source.Duplicate();
                 copy = duplicated[1];
 
@@ -221,7 +163,7 @@ namespace AlignPro.AddIn
                 PowerPoint.Shape? shape = null;
                 try
                 {
-                    shape = ChangeApplier.FindById(shapes, key.ShapeId);
+                    shape = ChangeApplier.FindAnywhere(shapes, key.ShapeId);
                     if (shape == null) continue;
 
                     shape.Select(replace ? Office.MsoTriState.msoTrue : Office.MsoTriState.msoFalse);
@@ -255,17 +197,21 @@ namespace AlignPro.AddIn
             return null;
         }
 
-        /// <summary>Shape ids back to front, as the collection holds them.</summary>
-        private static List<int> StackingOrder(PowerPoint.Shapes shapes)
+        /// <summary>
+        /// Where each original sits in the stack, by <c>ZOrderPosition</c> - numbered across the whole
+        /// slide, so it orders shapes inside a group as well as shapes on the slide. A shape that is
+        /// gone sorts last of all.
+        /// </summary>
+        private static Dictionary<ShapeKey, int> StackingOrder(PowerPoint.Shapes shapes, IReadOnlyList<ShapeKey> originals)
         {
-            var order = new List<int>(shapes.Count);
-            for (var i = 1; i <= shapes.Count; i++)
+            var order = new Dictionary<ShapeKey, int>(originals.Count);
+            foreach (var key in originals)
             {
                 PowerPoint.Shape? shape = null;
                 try
                 {
-                    shape = shapes[i];
-                    order.Add(shape.Id);
+                    shape = ChangeApplier.FindAnywhere(shapes, key.ShapeId);
+                    order[key] = shape?.ZOrderPosition ?? int.MaxValue;
                 }
                 finally
                 {
@@ -274,13 +220,6 @@ namespace AlignPro.AddIn
             }
 
             return order;
-        }
-
-        /// <summary>Where a shape sits in the stack, or last of all when it is not on the slide.</summary>
-        private static int IndexIn(List<int> stacking, ShapeKey key)
-        {
-            var index = stacking.IndexOf(key.ShapeId);
-            return index < 0 ? int.MaxValue : index;
         }
     }
 }

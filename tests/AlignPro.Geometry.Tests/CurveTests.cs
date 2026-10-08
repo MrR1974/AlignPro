@@ -371,17 +371,4 @@ public class CurveTests
 
         Assert.False(result.Succeeded);
     }
-
-    [Fact]
-    public void Undo_RestoresFramesAndAngles()
-    {
-        var shapes = FourThenCircle();
-        var result = Place(shapes, CurveDefinition.Ellipse());
-
-        var inverse = AlignTransaction.FromResult("Distribute along curve", result).Inverted();
-        var shape2 = inverse.Changes.Single(c => c.Key == Make.Key(2));
-
-        Assert.Equal(shapes[1].Frame, shape2.NewFrame);
-        Assert.Equal(0, shape2.NewRotation!.Value, 1e-9);
-    }
 }

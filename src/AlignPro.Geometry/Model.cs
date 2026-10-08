@@ -5,7 +5,7 @@ using System.Globalization;
 namespace AlignPro.Geometry
 {
     /// <summary>
-    /// Identifies a shape stably across an operation and its undo. <c>Shape.Name</c> is deliberately
+    /// Identifies a shape stably across an operation. <c>Shape.Name</c> is deliberately
     /// not used: PowerPoint does not enforce uniqueness on it.
     /// </summary>
     public readonly struct ShapeKey : IEquatable<ShapeKey>
@@ -153,7 +153,7 @@ namespace AlignPro.Geometry
 
         public ShapeKey Key { get; }
 
-        /// <summary>The frame as it was, so the change is its own undo record.</summary>
+        /// <summary>The frame as it was, so a change that would move nothing can be skipped.</summary>
         public RectD OldFrame { get; }
 
         public RectD NewFrame { get; }
@@ -170,9 +170,6 @@ namespace AlignPro.Geometry
 
         /// <summary>True when nothing would actually move, so the apply step can skip it.</summary>
         public bool IsNoOp => OldFrame.ApproximatelyEquals(NewFrame) && !ChangesRotation;
-
-        /// <summary>The same change running backwards, ready to apply as an undo.</summary>
-        public GeometryChange Inverted() => new GeometryChange(Key, NewFrame, OldFrame, NewRotation, OldRotation);
 
         /// <summary>An angle folded into [0, 360), the range PowerPoint itself reports.</summary>
         public static double NormaliseAngle(double degrees)
@@ -207,8 +204,7 @@ namespace AlignPro.Geometry
     /// The whole slide is recorded rather than just the selection because PowerPoint gives no way to
     /// write a shape's <c>ZOrderPosition</c> directly - the only lever is "bring this one to the
     /// front". Replaying a complete ordering front-wards with that lever lands on exactly the order
-    /// asked for, and nothing else needs to be worked out. It also makes the inverse trivial: the
-    /// ordering that was there before is itself a complete instruction for getting back to it.
+    /// asked for, and nothing else needs to be worked out.
     /// </para>
     /// <para>
     /// Only top-level shapes appear here. A shape inside a group has a z-position within its group
@@ -245,9 +241,6 @@ namespace AlignPro.Geometry
             }
         }
 
-        /// <summary>The same change running backwards, ready to apply as an undo.</summary>
-        public ZOrderChange Inverted() => new ZOrderChange(NewOrder, OldOrder);
-
         public override string ToString() =>
             string.Format(CultureInfo.InvariantCulture, "z-order of {0} shapes", NewOrder.Count);
     }
@@ -255,7 +248,8 @@ namespace AlignPro.Geometry
     /// <summary>Slide-level geometry the solver needs to resolve non-selection references.</summary>
     public sealed class SlideMetrics
     {
-        public SlideMetrics(double width, double height, double margin = 0, RectD? placeholderBounds = null)
+        public SlideMetrics(
+            double width, double height, double margin = 0, RectD? placeholderBounds = null, RectD? groupBounds = null)
         {
             if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), width, "Slide width must be positive.");
             if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), height, "Slide height must be positive.");
@@ -265,6 +259,7 @@ namespace AlignPro.Geometry
             Height = height;
             Margin = margin;
             PlaceholderBounds = placeholderBounds;
+            GroupBounds = groupBounds;
         }
 
         public double Width { get; }
@@ -276,6 +271,13 @@ namespace AlignPro.Geometry
 
         /// <summary>The layout's body placeholder rectangle, when one could be read.</summary>
         public RectD? PlaceholderBounds { get; }
+
+        /// <summary>
+        /// The frame of the group the selection is inside, or null when the selection is of
+        /// top-level shapes. Measured before the operation: PowerPoint re-fits a group's frame to its
+        /// contents after every move, so this is the edge the user saw when they clicked.
+        /// </summary>
+        public RectD? GroupBounds { get; }
 
         public RectD Bounds => new RectD(0, 0, Width, Height);
 

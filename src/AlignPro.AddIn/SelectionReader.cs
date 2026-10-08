@@ -17,7 +17,9 @@ namespace AlignPro.AddIn
             ShapeKey? anchor,
             IReadOnlyList<ShapeKey>? slideOrder = null,
             CurveDefinition? anchorCurve = null,
-            string? anchorCurveProblem = null)
+            string? anchorCurveProblem = null,
+            bool insideGroup = false,
+            double groupRotation = 0)
         {
             Shapes = shapes;
             Slide = slide;
@@ -26,7 +28,21 @@ namespace AlignPro.AddIn
             SlideOrder = slideOrder;
             AnchorCurve = anchorCurve;
             AnchorCurveProblem = anchorCurveProblem;
+            InsideGroup = insideGroup;
+            GroupRotation = groupRotation;
         }
+
+        /// <summary>
+        /// The angle of the group the shapes are inside, in degrees clockwise, or 0 at slide level.
+        /// The solver works along the group's own axes when it is turned; see <see cref="GroupSpace"/>.
+        /// </summary>
+        public double GroupRotation { get; }
+
+        /// <summary>
+        /// True when the shapes were selected inside a group rather than on the slide. They then all
+        /// belong to one group (probe 11), whose frame is <see cref="SlideMetrics.GroupBounds"/>.
+        /// </summary>
+        public bool InsideGroup { get; }
 
         /// <summary>
         /// The curve the anchor defines, when the caller asked for it and the anchor is a shape that
@@ -86,6 +102,8 @@ namespace AlignPro.AddIn
             PowerPoint.DocumentWindow? window = null;
             PowerPoint.Selection? selection = null;
             PowerPoint.ShapeRange? range = null;
+            PowerPoint.ShapeRange? groupRange = null;
+            PowerPoint.Shape? group = null;
             PowerPoint.Slide? slide = null;
             PowerPoint.Presentation? presentation = null;
 
@@ -113,6 +131,22 @@ namespace AlignPro.AddIn
                     return null;
                 }
 
+                // Shapes picked inside a group: ShapeRange then holds the group itself, and the shapes
+                // actually picked are the child range, in selection order (probe 11).
+                RectD? groupBounds = null;
+                var groupRotation = 0.0;
+                var insideGroup = selection.HasChildShapeRange;
+                if (insideGroup)
+                {
+                    groupRange = range;
+                    group = groupRange[1];
+                    range = selection.ChildShapeRange;
+
+                    // The group's frame is its unrotated one, like any shape's, turned about its centre.
+                    groupRotation = group.Rotation;
+                    groupBounds = new RectD(group.Left, group.Top, Math.Max(0, group.Width), Math.Max(0, group.Height));
+                }
+
                 slide = window.View.Slide as PowerPoint.Slide;
                 if (slide == null)
                 {
@@ -132,7 +166,8 @@ namespace AlignPro.AddIn
                     presentation.PageSetup.SlideWidth,
                     presentation.PageSetup.SlideHeight,
                     margin,
-                    ReadPlaceholderBounds(slide));
+                    ReadPlaceholderBounds(slide),
+                    groupBounds);
 
                 var shapes = new List<ShapeSnapshot>(range.Count);
                 ShapeKey? anchor = null;
@@ -153,7 +188,12 @@ namespace AlignPro.AddIn
                     }
                 }
 
-                var slideOrder = includeSlideOrder ? ReadSlideOrder(slide, slideId) : null;
+                IReadOnlyList<ShapeKey>? slideOrder = null;
+                if (includeSlideOrder)
+                {
+                    slideOrder = insideGroup ? ReadGroupOrder(group!, slideId, out problem) : ReadSlideOrder(slide, slideId);
+                    if (slideOrder == null) return null;
+                }
 
                 CurveDefinition? curve = null;
                 string? curveProblem = null;
@@ -171,13 +211,16 @@ namespace AlignPro.AddIn
                     }
                 }
 
-                return new SelectionSnapshot(shapes, metrics, slideId, anchor, slideOrder, curve, curveProblem);
+                return new SelectionSnapshot(
+                    shapes, metrics, slideId, anchor, slideOrder, curve, curveProblem, insideGroup, groupRotation);
             }
             finally
             {
                 Com.Release(presentation);
                 Com.Release(slide);
                 Com.Release(range);
+                Com.Release(group);
+                Com.Release(groupRange);
                 Com.Release(selection);
                 Com.Release(window);
             }
@@ -220,6 +263,62 @@ namespace AlignPro.AddIn
             finally
             {
                 Com.Release(shapes);
+            }
+        }
+
+        /// <summary>
+        /// The shapes inside a group, back to front - the stacking order a selection inside it is
+        /// restacked within. Null, with the reason, when the group holds another group.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <c>GroupItems</c> is not in z-order, so the order is read from <c>ZOrderPosition</c>, which
+        /// is (probe 18).
+        /// </para>
+        /// <para>
+        /// A nested group is flattened in <c>GroupItems</c> and every leaf reports the outer group as
+        /// its parent, yet bringing a leaf to the front only restacks it within its inner group (probe
+        /// 19). Nothing says which inner group a leaf is in, so no ordering across them can be trusted.
+        /// The one trace an inner group leaves is a z-position of its own that no leaf holds, so a gap
+        /// in the leaves' positions means the group holds another, and the selection is refused.
+        /// </para>
+        /// </remarks>
+        private static IReadOnlyList<ShapeKey>? ReadGroupOrder(PowerPoint.Shape group, int slideId, out string? problem)
+        {
+            problem = null;
+            PowerPoint.GroupShapes? items = null;
+            try
+            {
+                items = group.GroupItems;
+                var stack = new List<(int Z, int Id)>(items.Count);
+                for (var i = 1; i <= items.Count; i++)
+                {
+                    PowerPoint.Shape? child = null;
+                    try
+                    {
+                        child = items[i];
+                        stack.Add((child.ZOrderPosition, child.Id));
+                    }
+                    finally
+                    {
+                        Com.Release(child);
+                    }
+                }
+
+                stack.Sort((a, b) => a.Z.CompareTo(b.Z));
+                if (stack.Count > 0 && stack[stack.Count - 1].Z - stack[0].Z + 1 != stack.Count)
+                {
+                    problem = "This group has another group inside it, and PowerPoint only restacks a shape among the shapes of its own inner group. AlignPro cannot reorder inside it yet - ungroup the inner group first.";
+                    return null;
+                }
+
+                var order = new List<ShapeKey>(stack.Count);
+                foreach (var entry in stack) order.Add(new ShapeKey(slideId, entry.Id));
+                return order;
+            }
+            finally
+            {
+                Com.Release(items);
             }
         }
 

@@ -349,6 +349,9 @@ an object-model *method* executes in place, a *command* is queued until the curr
 the ribbon Undo button and the Quick Access Toolbar each reverse exactly one AlignPro operation, and
 `tools/Test-RibbonClicks.ps1` covers all of it.
 
+That also made `UndoManager` a convenience again, and after 1.3.1 it was removed along with AlignPro's
+own Undo and Redo buttons. PowerPoint's undo is the only one now.
+
 ### A harness trap worth knowing about
 
 The first two runs of the new Ctrl+Z cases failed, and the product was fine. **Invoking a ribbon button
@@ -463,3 +466,75 @@ Width = 150            L=  100.00 T=  300.00 W=  150.00 H=   94.87 rot=    0 fli
   The first version of this probe tried to answer the question by exporting the slide and reading
   pixels where each reading put the stroke. It found no stroke anywhere, because the stroke was not
   in the frame at all. Rendering by eye is what showed why.
+
+## Groups: probes 11 to 18
+
+Measured by [`tools/Probe-Groups.ps1`](../tools/Probe-Groups.ps1) on 2026-10-08, for working on shapes
+*inside* a group. Where a shape inside a rotated group really sits was not taken on trust: the probe
+duplicates the group, ungroups the copy - which bakes the group's rotation into each shape - and
+reads the loose shapes.
+
+- **Probe 11: the selection.** Selecting shapes inside a group leaves `Selection.ShapeRange` holding
+  the *group*, which is why AlignPro has always moved the whole group. The shapes actually picked are
+  in `Selection.ChildShapeRange`, flagged by `HasChildShapeRange`, and it keeps selection order
+  (K3, K1, K2 in, K3, K1, K2 out by script). Checked by hand on 2026-10-08: with the mouse too, the
+  shape clicked last inside a group is the anchor.
+  A child selection **cannot span two groups, or mix a child with a loose shape**: both are refused
+  (`Invalid request`), while a control selection of a loose shape plus a whole group, made straight
+  after, works. So a selection inside a group always belongs to exactly one top-level group.
+- **Probe 12: an unrotated group.** A child's `Left/Top/Width/Height/Rotation` are slide coordinates
+  and writable. Moving a child changes nothing else: its siblings stay put and the group's frame
+  simply re-fits its contents, growing or shrinking as needed. A child's `Id` is unique on the slide
+  but it is **not** in `slide.Shapes` - it has to be found through its group's `GroupItems`.
+- **Probe 13: undo.** Child writes after `StartNewUndoEntry` form one entry: one Ctrl+Z restores
+  every child and the group's frame, and the slide survives.
+- **Probe 14: a rotated group** was the surprise, and a welcome one. PowerPoint reports every child
+  **as it really sits on the slide**: the frame's centre is the true centre and `Rotation` is the
+  true angle (30 for an unrotated shape in a 30° group), matching the ungrouped copy to the hundredth.
+  Writes are in the same space - `Left += 20` moved the true centre 20pt along the *slide's* x axis -
+  and siblings never drift, even when a move outside the frame makes the group re-fit and its
+  centre move. So inside any group a child is, to the object model, an ordinary slide shape.
+  Aligning along the group's own axes is therefore a coordinate change around the solver, not a
+  different way of writing.
+- **Probe 15: text bounds** of a child in a rotated group are slide space - the axis-aligned box of
+  the rotated text, centred within 1pt of the shape's true centre - like any rotated shape's.
+- **Probe 16: nested groups** are flattened. `GroupItems` lists every leaf (P1, P2, P3), the inner
+  group does not appear, and `ParentGroup` is always the top-level group. Selecting P1 then P2 by
+  script gives a child range of P1, P2. Checked by hand on 2026-10-08: the mouse agrees. Clicking into
+  the outer group never selects the inner group as one shape; it selects the leaf clicked. So a
+  selection inside a group is always of leaves, and no inner group ever needs moving as a unit.
+- **Probe 17: Duplicate of a child** stays inside the group: the slide's shape count is unchanged
+  and the copy's `ParentGroup` is the group, offset 12pt as usual, with a new `Id`. But the group's
+  `GroupItems` still lists only the original three, even read fresh. Probes 20 to 22 explain it.
+- **Probe 18: z-order.** `ZOrder` on a child restacks it **within its group** and leaves the slide's
+  own order alone. `ZOrderPosition` is numbered across the whole slide, and stacking inside a group
+  is read from it. The probe also seemed to show `GroupItems` keeping its positions through a
+  restack (K1 brought to front still listed first), and **that was wrong**: a ribbon run that
+  trusted those positions brought the wrong shapes to the front, in exactly the pattern a
+  collection re-sorted after every `ZOrder` produces. So a restack inside a group looks each shape
+  up by id on every call, as at slide level.
+- **Probe 19: z-order in a nested group.** Bringing a leaf of an inner group to the front lifts it
+  only **within the inner group** - P2 stayed below P1 - and still nothing says which inner group a
+  leaf is in: `ParentGroup` is the outer group. The one trace of an inner group is a z-position of
+  its own that no leaf holds (P1 z14, P2 z16, P3 z17). Order inside a group is therefore refused
+  when the leaves' positions have a gap.
+- **Probes 20 to 23: the copy is real, and the blind spot was PowerShell's.** A copy made inside a
+  group - by `Duplicate` on a child, on the child range a selection gives, or by PowerPoint's own
+  Ctrl+D - is a true member: the group's frame grows to take it in, it survives saving and
+  reopening, and it keeps the original's name with a new `Id`, `Child` true and the group as
+  `ParentGroup`. One Ctrl+Z after `StartNewUndoEntry` removes it and any move made to it. Ungroup and
+  `Regroup` is no tool here: the group comes back renamed, with a new `Id`, and without any shape
+  added while it was apart.
+
+  Read **from PowerShell**, `GroupItems` did not list the copy - not after selecting it, deselecting
+  and reselecting the group, a new undo entry, a nudge, or saving; only reopening the file showed
+  it. That was the reader, not PowerPoint. The same count **from VBScript** is right at once (2, then
+  3, on the same group object and on one fetched fresh), and AlignPro, inside PowerPoint, aligned a
+  copy straight after making it. PowerShell's COM layer evidently caches what a group's collection
+  holds. It is a trap for the test harnesses, which are PowerShell: after shapes are added to a
+  group, count and walk `GroupItems` there with suspicion, and prefer lookups by name. Probe 18's
+  original reading - `GroupItems` keeping its order through a restack - was also taken from
+  PowerShell, which likely explains why it disagreed with what the add-in then met.
+
+  There is no `ExecuteMso` name for PowerPoint's own duplicate command (`DuplicateSelection`,
+  `Duplicate` and `ObjectDuplicate` are all refused); probe 22 presses Ctrl+D instead.

@@ -14,7 +14,7 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 
 | Path | What's in it |
 |---|---|
-| [`src/AlignPro.Geometry/`](../src/AlignPro.Geometry/) | The solver and the undo journal. Pure logic, **zero Office references**, `netstandard2.0` |
+| [`src/AlignPro.Geometry/`](../src/AlignPro.Geometry/) | The solvers. Pure logic, **zero Office references**, `netstandard2.0` |
 | [`src/AlignPro.AddIn/`](../src/AlignPro.AddIn/) | The VSTO add-in: ribbon, selection adapter, apply pipeline, undo boundary, automation surface. `net48` |
 | [`tests/AlignPro.Geometry.Tests/`](../tests/AlignPro.Geometry.Tests/) | xUnit suite on `net8.0` |
 | [`install.ps1`](../install.ps1) | The one-line remote installer. Downloads a release, verifies its checksum, hands it to the installer inside |
@@ -28,7 +28,7 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/Probe-ShapeGeometry.ps1`](../tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
 | [`tools/Probe-UndoGrouping.ps1`](../tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
 | [`tools/Probe-DuplicateAndPaths.ps1`](../tools/Probe-DuplicateAndPaths.ps1) | Duplicate's undo and z-order, freeform nodes, and what an Arc's frame really is |
-| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 17-slide sample deck, one slide per capability |
+| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 19-slide sample deck, one slide per capability |
 | [`tools/New-TestDeck.ps1`](../tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
 | [`tools/Test-AlignProEndToEnd.ps1`](../tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Test-RibbonClicks.ps1`](../tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
@@ -163,9 +163,9 @@ option is not selected"*. The certificate is self-signed and trusted only on the
 Three layers, because each catches what the others cannot.
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 231, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 34, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 25, real ribbon clicks
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 223, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 55, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 28, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over
@@ -246,8 +246,7 @@ point with its own `OrderVerb`, because the align solver is defined by emitting 
 restacking emits no geometry at all. It works in terms of the slide's whole stacking order, back to
 front, and rewrites only the slots the selection already occupies — so unselected shapes keep their
 layer. `ZOrderPosition` is read-only in the object model, so the applier realises an ordering by
-calling `BringToFront` on each shape in turn from the back of the target list forwards; the ordering
-that was there before is itself the complete undo instruction.
+calling `BringToFront` on each shape in turn from the back of the target list forwards.
 
 **Two more verbs live outside it for the same kind of reason.** `DuplicateSolver` emits a recipe for
 shapes that do not exist yet - per copy, per original, a frame and an angle - so it cannot be a list
@@ -262,11 +261,6 @@ four.
 they never read. Match rotation and Distribute along curve set it. PowerPoint turns a shape about its
 frame's centre and reports the unrotated frame whatever the angle, so a rotation-only change leaves
 the frame exactly where it was.
-
-**A transaction can carry created shapes.** `ShapeCreation` holds a duplicate's recipe and the keys
-of the shapes it made. Undo deletes them; redo re-runs the recipe from the originals and, since
-PowerPoint gives recreated shapes new ids, rewrites the keys through `Rekey` - the one mutable object
-in the journal, shared between a transaction and its inverse so the next undo sees the new keys.
 
 The six align edges are the verbs; anchor, slide and rotation awareness are the two orthogonal axes
 crossed over them. That is why a large feature list comes out of one small engine.
@@ -293,29 +287,31 @@ Three design decisions that came out of measurement rather than preference:
   scripted deck, one Ctrl+Z, every slide gone.
 
   `Application.StartNewUndoEntry` ends that entry, and `ChangeApplier` calls it before writing.
-  Ctrl+Z, the ribbon Undo button and the Quick Access Toolbar now each reverse exactly one AlignPro
-  operation. Two earlier attempts failed and are worth not repeating: repurposing the built-in Undo
+  Ctrl+Z and the Quick Access Toolbar's Undo now each reverse exactly one AlignPro operation, and
+  Redo replays it - stacking order and duplicated copies included. Two earlier attempts failed and are worth not repeating: repurposing the built-in Undo
   (PowerPoint parses `<command idMso="Undo">` and never invokes the callback), and closing the group
   with a formatting toggle plus `ExecuteMso("Undo")`, which works from outside PowerPoint but not
   from a ribbon callback, because a *command* is deferred while another is executing. The distinction
   that matters is that `StartNewUndoEntry` is an object-model *method*, so it executes in place.
 
-- **AlignPro still keeps its own undo, for the label.** PowerPoint's Undo cannot say which operation
-  it is about to reverse; the ribbon reads "Undo align left" because `UndoManager` knows. The two
-  stacks are independent and a native Ctrl+Z does not pop ours, so the button's label can be a step
-  ahead of the document. Harmless today — changes carry absolute frames — but it is the loose end.
+- **AlignPro has no undo of its own.** Up to 1.3.1 it kept a second, labelled stack beside
+  PowerPoint's, with its own Undo and Redo buttons, because native undo once could not be trusted.
+  Once every operation had its own native entry, all that stack added was a name on the button, and
+  keeping it in step with Ctrl+Z took a probe of the slide on every selection change. It was removed
+  rather than patched. Undo is PowerPoint's, and the test harnesses drive it with
+  `ExecuteMso("Undo")` and a real Ctrl+Z.
 
 ## Status
 
 | Phase | State |
 |---|---|
 | 0. Object-model spike | **Done** — six probes plus two follow-up undo experiments |
-| 1. Geometry engine + tests | **Done** — 161 tests passing |
-| 1b. Undo journal | **Done** — `UndoManager` and `AlignTransaction`, pure and fully tested |
+| 1. Geometry engine + tests | **Done** — 161 tests at the time; 223 now, see 3c |
+| 1b. Undo journal | **Removed** after 1.3.1 — once 3b made native undo correct, `UndoManager` only added a label to the button. See [How the solver is shaped](#how-the-solver-is-shaped) |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Done** — `Application.StartNewUndoEntry` gives each operation its own native undo entry; verified by real ribbon clicks plus Ctrl+Z |
-| 3c. Automated end-to-end tests | **Done** — 231 unit tests, 34 COM checks, and 25 real ribbon clicks |
+| 3c. Automated end-to-end tests | **Done** — 223 unit tests, 55 COM checks, and 28 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
 | 6. Grow or shrink by the match-size margin | **Done** — Direction dropdown; a negative margin is refused |
@@ -323,6 +319,11 @@ Three design decisions that came out of measurement rather than preference:
 | 8. Object-model spike for duplicate and paths | **Done** — probes 7 to 10; two of the plan's assumptions were wrong, see [Next features](#next-features) |
 | 9. Created shapes in transactions, then Duplicate | **Done** |
 | 10. Distribute on a circle, arc or path | **Done** — rotated arcs refused, closed freeforms followed as open |
+| G0. Object-model spike for shapes inside a group | **Done** — [probes 11 to 18](object-model-findings.md#groups-probes-11-to-18) |
+| G1. Inside an unrotated group: every geometry verb, and Align to Group | **Done** — COM checks for every verb inside a group, a ribbon click, sample-deck slide 18. See [Inside a group](#inside-a-group) |
+| G2. Inside a rotated group, along the group's own axes | **Done** — `GroupSpace`, 13 unit tests, COM checks against a 30° group, a ribbon click, sample-deck slide 19 |
+| G3. Order inside a group | **Done** — restacks within the group; refused when the group holds another group (probe 19). COM checks, a ribbon click |
+| G4. Duplicate inside a group | **Done** — copies go inside the group ([probes 20 to 23](object-model-findings.md#groups-probes-11-to-18)); in a rotated group the step follows the group's axes. Unit tests, COM checks, a ribbon click |
 | 11. Tidy: snap near-alignments | **Planned** — see [Tidy](#tidy) |
 | 12. Tidy: even out near-even spacing | **Planned** |
 | 13. Tidy on the ribbon | **Planned** |
@@ -349,7 +350,8 @@ wrong: freeform nodes are reported *as drawn*, already rotated and flipped, and 
 the box of the arc and its centre, not of its ellipse.
 
 **9. Created shapes in transactions, then Duplicate.** Built as planned: `ShapeCreation`, undo
-deletes, redo re-runs the recipe and rekeys. Decided along the way:
+deletes, redo re-runs the recipe and rekeys. (That journal went with AlignPro's own undo, phase 1b;
+PowerPoint's undo and redo handle the copies.) Decided along the way:
 - **Own centre** means each shape's own centre, so for a multi-shape selection the angle spins every
   shape in place while X and Y move them all together. **Selection centre** is the pivot that turns
   the selection as one rigid piece. It is the centre of the selection's *visual* bounds.
@@ -386,6 +388,70 @@ label of one Braille blank (U+2800). Three simpler ways failed: Office leaves ou
 non-breaking or figure spaces, a disabled spacer button draws a grey square, and a
 separator adds a line where only space was wanted.
 
+### Inside a group
+
+Planned 2026-10-08, before Tidy. Today a group is always one object: selecting shapes *inside* a
+group still moves the whole group, because the reader only looks at `Selection.ShapeRange`, and that
+holds the group (probe 11). This makes every tool work on the shapes picked inside a group. Decided
+with the user: **every** tool, not only align and distribute; in a rotated group the edges are the
+**group's own**, so shapes line up as the group is seen; and **Align to** gains a **Group** entry.
+Selecting a whole group behaves exactly as it does now.
+
+What the spike settled: a child selection always belongs to one top-level group (probe 11); nested
+groups are flattened, so a child is always a leaf (probe 16); children report and accept slide
+coordinates even in a rotated group, and moving one never shifts its siblings (probes 12 and 14);
+and one Ctrl+Z reverses it all (probe 13).
+
+**The shape of it.**
+- `SelectionReader` reads `ChildShapeRange` when `HasChildShapeRange` is set, and the snapshot gains
+  the containing group: its key, frame and rotation. The anchor is still the shape selected last.
+- `ChangeApplier` and `ShapeCreator` find shapes by id among each group's `GroupItems` as well as
+  the slide's top-level shapes, since children are not in `slide.Shapes` (probe 12).
+- `ReferenceTarget.Group` aligns against the containing group's frame. Outside a group it is refused
+  with a pointer to select inside one. The group's frame re-fits after the move (probe 12), so
+  aligning a shape to an edge it does not already define moves it to where the edge *was*, which
+  is what the user saw when they clicked.
+- **A rotated group is a change of coordinates, not a new solver.** A pure `GroupSpace` in the
+  engine turns each snapshot about the group's centre by minus its angle - frame centre, angle,
+  and the group's own frame - runs the existing solver unchanged, and turns every resulting change
+  back. Children are written in slide space as ever (probe 14). Unrotated, the transform is the
+  identity, and the code path is the same.
+- In a rotated group, **Slide**, **Slide margins** and **Content placeholder** are refused: they are
+  rectangles along the slide's axes, and have no meaning along the group's. **Text bounds** is
+  refused too, because PowerPoint reports a rotated text box's slide-axis box (probe 15), which
+  stops describing the text once turned into the group's axes. **Along curve** needs no transform:
+  it places by distance along the curve, which no axis enters into.
+
+**G1. Inside an unrotated group.** Reader, applier and the Group reference; align, distribute,
+match size and rotation, grid and along curve all work on children. Unit tests for the Group
+reference, COM checks for each verb on children, a ribbon-click check, a sample-deck slide.
+
+**G2. Inside a rotated group.** `GroupSpace` with unit tests first: a round trip is exact; align left
+in a 30° group moves shapes along the group's axis, not the slide's; distribute and grid follow the
+group's axes; match rotation is unaffected. Then the refusals, COM checks against a rotated group,
+and a sample-deck slide.
+
+**G3. Order inside a group.** Restack within the group: the reader supplies the group's children
+ordered by `ZOrderPosition` (probe 18), and the applier's `BringToFront` restacks inside the group
+without touching the slide's order. Built as planned, with two corrections from measurement. The
+applier looks each shape up by id on every call, because `GroupItems` is re-sorted by a restack -
+the first ribbon run, trusting its positions, stacked the wrong shapes. And a group that holds
+another group is refused: a leaf only restacks within its inner group, which nothing identifies
+(probe 19).
+
+**G4. Duplicate inside a group.** Probes 20 to 23 settled it: a copy made inside a group stays in
+the group as a real member, exactly as PowerPoint's own Ctrl+D leaves one, and one Ctrl+Z removes
+it. So copies are made inside the group. (Probe 17's apparent contradiction - the copy missing from
+`GroupItems` - was PowerShell, which reads a stale collection; inside PowerPoint it is listed at
+once.) Built that way: `ShapeCreator` finds originals and selects copies by id anywhere on the
+slide, and orders them by `ZOrderPosition`; `GroupSpace.SolveDuplicate` steps X and Y along a rotated
+group's axes, refuses the Slide centre pivot there, and checks for copies off the slide only once
+they are back in slide coordinates.
+
+**Checked by hand** on 2026-10-08: the mouse keeps selection order inside a group, so the anchor is
+the shape clicked last, as at slide level; and clicking into a group that holds a smaller group
+selects the leaf clicked, never the smaller group as one shape - so a child is always a leaf.
+
 ### Tidy
 
 Planned 2026-09-23, not yet built. **Tidy** finds shapes that are *nearly* aligned or *nearly* evenly
@@ -410,7 +476,7 @@ without Copilot. It is not part of this plan.
 **The shape of it.** `TidySolver` is a separate entry point beside `CurveSolver`, because it has no
 verb or reference: it decides for itself what to align. It takes a `TidyRequest` (tolerance, bounds
 model, what to fix) and the snapshots. It returns an ordinary `SolveResult` of translations, so it
-gets the rest without extra work: one native undo entry, labelled undo, the Measure setting and rigid
+gets the rest without extra work: one native undo entry, the Measure setting and rigid
 groups. It **only moves shapes**. It never resizes or rotates, and its changes carry no angle.
 
 **11. Snap near-alignments.** Each axis is solved on its own, since a translation on one axis
@@ -462,8 +528,7 @@ finds nothing to do. That is a test, and the lock rule is what makes it hold.
 - **It always reports**, because a 2pt fix is invisible. "Tidied 5 shapes: 3 alignments, 1 row", or
   "Nothing to tidy: no shapes are within 3pt of lining up". It uses `OkWithNotice` even on
   success. Connectors left out and clusters skipped over a conflict are both listed.
-- The undo label is "Undo tidy".
-- A sample-deck slide (18) should include: a jittered 3×3 grid; a near-aligned row with uneven gaps;
+- A sample-deck slide (20) should include: a jittered 3×3 grid; a near-aligned row with uneven gaps;
   a deliberate 6pt stagger that Tidy must leave alone at 3pt; a rotated shape that is flush only by
   Visual bounds; a connector; and a placeholder that others snap to.
 
@@ -491,11 +556,6 @@ real use. It may need a lower default tolerance.
 
 ### Known limitations
 
-**AlignPro's Undo button can be a step ahead of the document.** Ctrl+Z is safe as of 1.2.0 and
-reverses one AlignPro operation, but it does not pop AlignPro's own stack, so after a native undo the
-ribbon may still offer to undo what PowerPoint already reversed. Doing so is harmless — changes carry
-absolute frames, so it rewrites coordinates the shapes already occupy — but the label misleads.
-
 **Settings are sticky across slides, and that changes what a verb does.** Reference, Measure,
 Space by, Exact (pt), Margin (pt), Direction and the Duplicate step persist until you change them. A `Reference` left on **Anchor** makes Grid lay
 out inside a single shape's bounds, which packs the whole selection into that shape's footprint — it
@@ -504,9 +564,12 @@ says so, but the general trap remains: when a result looks wrong, check Referenc
 
 **Don't keep the sample deck in OneDrive.** PowerPoint enables AutoSave for OneDrive-backed files, so
 every experiment is written straight back into the fixture. `New-SampleDeck.ps1` therefore defaults to
-`sample\` beside the project, which is local and gitignored.
+`sample\` beside the project, which is local. The deck there is committed, because the README points
+people at it, so experiments still show up in `git status`. So does a run of `Test-RibbonClicks.ps1`,
+which regenerates the deck there before clicking. Discard them, or regenerate with `-Force`
+and commit the new deck only when its slides have deliberately changed.
 
 Manual verification: run [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1), which writes a saved
-17-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
+19-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
 captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
 (what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).

@@ -123,28 +123,6 @@ namespace AlignPro.AddIn
         public void OnDuplicate(Office.IRibbonControl control) => Guard(() =>
             Report(Controller.RunDuplicate("Duplicate"), "Duplicate"));
 
-        // -- undo --------------------------------------------------------------------------------
-        // AlignPro keeps its own undo because PowerPoint's cannot be trusted after an object-model
-        // change: its entry may cover an unbounded amount of earlier work. Use these buttons rather
-        // than Ctrl+Z after an AlignPro command. See UndoBoundary for the attempt to fix the native
-        // behaviour and why it is not currently usable.
-
-        public void OnUndo(Office.IRibbonControl control) => Guard(() =>
-            Report(Controller.UndoLast(), "Undo"));
-
-        public void OnRedo(Office.IRibbonControl control) => Guard(() =>
-            Report(Controller.RedoLast(), "Redo"));
-
-        public bool GetUndoEnabled(Office.IRibbonControl control) => Controller.Undo.CanUndo;
-
-        public bool GetRedoEnabled(Office.IRibbonControl control) => Controller.Undo.CanRedo;
-
-        public string GetUndoLabel(Office.IRibbonControl control) =>
-            Controller.Undo.NextUndoLabel is string label ? "Undo " + label.ToLowerInvariant() : "Undo";
-
-        public string GetRedoLabel(Office.IRibbonControl control) =>
-            Controller.Undo.NextRedoLabel is string label ? "Redo " + label.ToLowerInvariant() : "Redo";
-
         // -- reference and bounds ----------------------------------------------------------------
 
         private static readonly ReferenceTarget[] References =
@@ -153,7 +131,8 @@ namespace AlignPro.AddIn
             ReferenceTarget.SelectionBounds,
             ReferenceTarget.Slide,
             ReferenceTarget.SlideMargins,
-            ReferenceTarget.PlaceholderBounds
+            ReferenceTarget.PlaceholderBounds,
+            ReferenceTarget.Group
         };
 
         private static readonly BoundsModel[] BoundsModels =
@@ -393,8 +372,7 @@ namespace AlignPro.AddIn
                 text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
 
         /// <summary>
-        /// Refresh the ribbon's dynamic state - undo labels, enabled states, the text of the edit boxes
-        /// after a value was rejected.
+        /// Refresh the ribbon's dynamic state - the text of the edit boxes after a value was rejected.
         /// </summary>
         private void Invalidate() => _ribbon?.Invalidate();
 
@@ -404,8 +382,6 @@ namespace AlignPro.AddIn
         /// </summary>
         private void Report(CommandResult result, string title)
         {
-            Invalidate();
-
             if (result.Message != null) Diagnostics.Log("  " + title + ": " + result.Message);
 
             // Silence is right for an operation that just worked. It is wrong when part of the

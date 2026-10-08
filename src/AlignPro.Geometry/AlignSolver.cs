@@ -150,6 +150,14 @@ namespace AlignPro.Geometry
                     }
                     return slide.PlaceholderBounds.Value;
 
+                case ReferenceTarget.Group:
+                    if (!slide.GroupBounds.HasValue)
+                    {
+                        refusal = "Group aligns shapes to the group they are in. Click a group, then click the shapes inside it to select them.";
+                        return null;
+                    }
+                    return slide.GroupBounds.Value;
+
                 case ReferenceTarget.Anchor:
                     var anchor = FindAnchor(request, shapes, out refusal);
                     if (anchor is null) return null;
@@ -283,7 +291,8 @@ namespace AlignPro.Geometry
             // otherwise the selection's own extremes hold and the interior is evened out.
             var spanFromReference = request.Reference == ReferenceTarget.Slide ||
                                     request.Reference == ReferenceTarget.SlideMargins ||
-                                    request.Reference == ReferenceTarget.PlaceholderBounds;
+                                    request.Reference == ReferenceTarget.PlaceholderBounds ||
+                                    request.Reference == ReferenceTarget.Group;
 
             if (request.Reference == ReferenceTarget.Anchor)
             {

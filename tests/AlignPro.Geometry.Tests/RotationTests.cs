@@ -24,7 +24,6 @@ public class RotationTests
 
         Assert.Null(change.NewRotation);
         Assert.False(change.ChangesRotation);
-        Assert.Null(change.Inverted().NewRotation);
     }
 
     [Fact]
@@ -35,19 +34,6 @@ public class RotationTests
 
         Assert.True(change.ChangesRotation);
         Assert.False(change.IsNoOp);
-    }
-
-    [Fact]
-    public void Inverting_SwapsTheAnglesAsWellAsTheFrames()
-    {
-        var change = new GeometryChange(
-            Make.Key(1), new RectD(0, 0, 10, 10), new RectD(5, 5, 10, 10), 15, 45);
-
-        var inverse = change.Inverted();
-
-        Assert.Equal(45, inverse.OldRotation!.Value, Tolerance);
-        Assert.Equal(15, inverse.NewRotation!.Value, Tolerance);
-        Assert.Equal(new RectD(0, 0, 10, 10), inverse.NewFrame);
     }
 
     [Theory]
@@ -152,22 +138,6 @@ public class RotationTests
         }, anchorId: 9);
 
         Assert.Empty(result.EffectiveChanges);
-    }
-
-    [Fact]
-    public void UndoRestoresTheOriginalAngle()
-    {
-        var result = MatchRotation(new[]
-        {
-            Make.Shape(1, 0, 0, 50, 50, rotation: 10),
-            Make.Shape(9, 300, 0, 100, 60, rotation: 45)
-        }, anchorId: 9);
-
-        var undo = new UndoManager();
-        undo.Push(AlignTransaction.FromResult("Match rotation", result));
-        Assert.True(undo.TryUndo(out var inverse));
-
-        Assert.Equal(10, inverse.Changes.Single().NewRotation!.Value, Tolerance);
     }
 
     [Fact]

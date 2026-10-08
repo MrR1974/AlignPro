@@ -118,4 +118,61 @@ public class GroupAnchorAndReferenceTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Contains("overlap", StringComparison.OrdinalIgnoreCase));
         Assert.False(result.Notable);
     }
+
+    // -- aligning to the group the shapes are inside ----------------------------------------------
+
+    private static readonly RectD GroupFrame = new(100, 100, 300, 200);
+
+    [Fact]
+    public void AlignLeft_ToGroup_MovesShapesToTheGroupsEdge()
+    {
+        var result = AlignSolver.Solve(
+            new AlignRequest(AlignVerb.AlignLeft, ReferenceTarget.Group),
+            new[] { Make.Shape(1, 200, 120, 40, 30), Make.Shape(2, 300, 200, 60, 30) },
+            Make.Slide(group: GroupFrame));
+
+        Assert.True(result.Succeeded, string.Join(" ", result.Diagnostics));
+        Assert.Equal(100, result.FrameOf(1).Left, Tolerance);
+        Assert.Equal(100, result.FrameOf(2).Left, Tolerance);
+    }
+
+    [Fact]
+    public void AlignCentre_ToGroup_WorksOnASingleShape()
+    {
+        // Unlike Selection bounds, the group is a reference outside the selection, so one shape is
+        // enough - centring one shape inside its group is the obvious use.
+        var result = AlignSolver.Solve(
+            new AlignRequest(AlignVerb.AlignCentreH, ReferenceTarget.Group),
+            new[] { Make.Shape(1, 110, 120, 40, 30) },
+            Make.Slide(group: GroupFrame));
+
+        Assert.True(result.Succeeded, string.Join(" ", result.Diagnostics));
+        Assert.Equal(250, result.FrameOf(1).CentreX, Tolerance);
+    }
+
+    [Fact]
+    public void Distribute_ToGroup_SpansTheGroupsFrame()
+    {
+        var result = AlignSolver.Solve(
+            new AlignRequest(AlignVerb.DistributeH, ReferenceTarget.Group),
+            new[] { Make.Shape(1, 150, 120, 20, 20), Make.Shape(2, 200, 120, 20, 20), Make.Shape(3, 260, 120, 20, 20) },
+            Make.Slide(group: GroupFrame));
+
+        Assert.True(result.Succeeded, string.Join(" ", result.Diagnostics));
+        Assert.Equal(100, result.FrameOf(1).Left, Tolerance);
+        Assert.Equal(400, result.FrameOf(3).Right, Tolerance);
+        Assert.Equal(240, result.FrameOf(2).Left, Tolerance);
+    }
+
+    [Fact]
+    public void Group_IsRefusedWhenTheSelectionIsNotInsideAGroup()
+    {
+        var result = AlignSolver.Solve(
+            new AlignRequest(AlignVerb.AlignLeft, ReferenceTarget.Group),
+            new[] { Make.Shape(1, 200, 120, 40, 30), Make.Shape(2, 300, 200, 60, 30) },
+            Make.Slide());
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Diagnostics, d => d.Contains("inside", StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Globalization;
+using System.Linq;
 using AlignPro.Geometry;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
@@ -47,7 +47,7 @@ namespace AlignPro.AddIn
     }
 
     /// <summary>
-    /// Orchestrates one operation: read the selection, solve, apply, record for undo. Holds the
+    /// Orchestrates one operation: read the selection, solve, apply. Holds the
     /// settings the ribbon's dropdowns bind to.
     /// </summary>
     internal sealed class AlignProController
@@ -58,8 +58,6 @@ namespace AlignPro.AddIn
         {
             _app = app ?? throw new ArgumentNullException(nameof(app));
         }
-
-        public UndoManager Undo { get; } = new UndoManager();
 
         public ReferenceTarget Reference { get; set; } = ReferenceTarget.SelectionBounds;
 
@@ -109,9 +107,6 @@ namespace AlignPro.AddIn
         /// </summary>
         public bool RotateShapes { get; set; } = true;
 
-        /// <summary>Tracks which slide the undo stack belongs to; keys are only valid within one.</summary>
-        private int _undoSlideId;
-
         public CommandResult Run(AlignVerb verb, string label)
         {
             var selection = SelectionReader.TryRead(_app, Margin, out var problem);
@@ -144,13 +139,15 @@ namespace AlignPro.AddIn
                     snapshot.Key, snapshot.Name ?? "?", snapshot.Frame, snapshot.Rotation, snapshot.IsGroup));
             }
 
-            var solved = AlignSolver.Solve(request, selection.Shapes, selection.Slide);
+            // Inside a rotated group the solve runs along the group's own axes; anywhere else this is
+            // the align solver as it always was.
+            var solved = GroupSpace.Solve(request, selection.Shapes, selection.Slide, selection.GroupRotation);
             return ApplySolved(label, selection, solved);
         }
 
         /// <summary>
-        /// Applies a geometry solve and records it for undo. Shared by every verb whose result is a
-        /// set of frame and angle changes, whichever solver produced it.
+        /// Applies a geometry solve. Shared by every verb whose result is a set of frame and angle
+        /// changes, whichever solver produced it.
         /// </summary>
         private CommandResult ApplySolved(string label, SelectionSnapshot selection, SolveResult solved)
         {
@@ -159,34 +156,27 @@ namespace AlignPro.AddIn
                 return CommandResult.Failed(string.Join(" ", solved.Diagnostics));
             }
 
-            var transaction = AlignTransaction.FromResult(label, solved);
-            if (transaction.IsEmpty)
+            var changes = solved.EffectiveChanges.ToList();
+            if (changes.Count == 0)
             {
                 return CommandResult.Note("Nothing to change - the selection is already in place.");
             }
 
-            foreach (var change in transaction.Changes)
+            foreach (var change in changes)
             {
                 Diagnostics.LogVerbose("  change " + change);
             }
 
-            var outcome = ChangeApplier.Apply(_app, selection.SlideId, transaction.Changes);
+            var outcome = ChangeApplier.Apply(_app, selection.SlideId, changes);
             if (outcome.Applied == 0)
             {
                 return CommandResult.Failed("None of the selected shapes could be moved.");
             }
 
-            // Keys only mean anything within one slide, so a slide change invalidates the stack.
-            if (_undoSlideId != selection.SlideId)
-            {
-                Undo.Clear();
-                _undoSlideId = selection.SlideId;
-            }
-            Undo.Push(transaction);
             Diagnostics.Log(string.Format(
                 CultureInfo.InvariantCulture,
-                "Ran '{0}': applied={1} missing={2} slideId={3} undoDepth={4}",
-                label, outcome.Applied, outcome.Missing, selection.SlideId, Undo.UndoDepth));
+                "Ran '{0}': applied={1} missing={2} slideId={3}",
+                label, outcome.Applied, outcome.Missing, selection.SlideId));
 
             var note = BuildNote(solved, outcome);
             return solved.Notable || outcome.Missing > 0
@@ -217,28 +207,21 @@ namespace AlignPro.AddIn
                 return CommandResult.Failed(string.Join(" ", solved.Diagnostics));
             }
 
-            var transaction = AlignTransaction.FromOrder(label, solved.Change!);
-            if (transaction.IsEmpty)
+            if (solved.Change!.IsNoOp)
             {
                 return CommandResult.Note("Nothing to change - the shapes are already in that order.");
             }
 
-            var outcome = ChangeApplier.ApplyOrder(_app, selection.SlideId, solved.Change!.NewOrder);
+            var outcome = ChangeApplier.ApplyOrder(_app, selection.SlideId, solved.Change.NewOrder);
             if (outcome.Applied == 0)
             {
                 return CommandResult.Failed("None of the selected shapes could be restacked.");
             }
 
-            if (_undoSlideId != selection.SlideId)
-            {
-                Undo.Clear();
-                _undoSlideId = selection.SlideId;
-            }
-            Undo.Push(transaction);
             Diagnostics.Log(string.Format(
                 CultureInfo.InvariantCulture,
-                "Ran '{0}': restacked={1} missing={2} slideId={3} undoDepth={4}",
-                label, outcome.Applied, outcome.Missing, selection.SlideId, Undo.UndoDepth));
+                "Ran '{0}': restacked={1} missing={2} slideId={3}",
+                label, outcome.Applied, outcome.Missing, selection.SlideId));
 
             var skipped = Skipped(outcome);
             return skipped == null ? CommandResult.Ok() : CommandResult.Note(skipped);
@@ -257,7 +240,8 @@ namespace AlignPro.AddIn
             var request = new DuplicateRequest(
                 DuplicateX, DuplicateY, DuplicateAngle, DuplicateCopies, DuplicatePivot, RotateShapes, selection.Anchor);
 
-            var solved = DuplicateSolver.Solve(request, selection.Shapes, selection.Slide);
+            // Inside a rotated group the step runs along the group's own axes.
+            var solved = GroupSpace.SolveDuplicate(request, selection.Shapes, selection.Slide, selection.GroupRotation);
             if (!solved.Succeeded)
             {
                 return CommandResult.Failed(string.Join(" ", solved.Diagnostics));
@@ -272,16 +256,10 @@ namespace AlignPro.AddIn
                 return CommandResult.Failed("None of the selected shapes could be duplicated.");
             }
 
-            if (_undoSlideId != selection.SlideId)
-            {
-                Undo.Clear();
-                _undoSlideId = selection.SlideId;
-            }
-            Undo.Push(AlignTransaction.FromCreation(label, new ShapeCreation(solved.Copies, outcome.Created)));
             Diagnostics.Log(string.Format(
                 CultureInfo.InvariantCulture,
-                "Ran '{0}': created={1} missing={2} slideId={3} undoDepth={4}",
-                label, outcome.Created.Count, outcome.Missing, selection.SlideId, Undo.UndoDepth));
+                "Ran '{0}': created={1} missing={2} slideId={3}",
+                label, outcome.Created.Count, outcome.Missing, selection.SlideId));
 
             var notes = new List<string>(solved.Diagnostics);
             var expected = originals.Count * solved.Copies.Count;
@@ -300,7 +278,7 @@ namespace AlignPro.AddIn
 
         /// <summary>
         /// Places the selection along the curve the anchor defines. The solve is its own entry point,
-        /// but the result is ordinary geometry, so it applies and undoes like any align.
+        /// but the result is ordinary geometry, so it applies like any align.
         /// </summary>
         public CommandResult RunCurve(string label)
         {
@@ -319,128 +297,11 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>
-        /// Whether we should claim PowerPoint's Undo. True only when our stack holds something for the
-        /// slide currently in view, so editing elsewhere in the deck keeps native undo intact.
-        /// </summary>
-        /// <remarks>
-        /// This cannot be perfect. PowerPoint exposes no "document changed" event, so if the user makes
-        /// a manual edit on this slide after an AlignPro command, Ctrl+Z reverses our command rather
-        /// than their edit. That is recoverable - Redo puts it back - and is a far better failure than
-        /// native undo discarding an unbounded coalesced entry.
-        /// </remarks>
-        public bool CanUndoOnCurrentSlide() =>
-            Undo.CanUndo && TryGetActiveSlideId() == _undoSlideId;
-
-        /// <summary>
-        /// Everything needed to tell apart the ways interception can decline: an empty stack, a slide
-        /// mismatch, or an unreadable active slide.
-        /// </summary>
-        public string DescribeUndoState()
-        {
-            var active = TryGetActiveSlideId();
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "canUndo={0} undoDepth={1} activeSlideId={2} undoSlideId={3} next='{4}'",
-                Undo.CanUndo,
-                Undo.UndoDepth,
-                active?.ToString(CultureInfo.InvariantCulture) ?? "null",
-                _undoSlideId,
-                Undo.NextUndoLabel ?? "-");
-        }
-
-        public bool CanRedoOnCurrentSlide() =>
-            Undo.CanRedo && TryGetActiveSlideId() == _undoSlideId;
-
-        private int? TryGetActiveSlideId()
-        {
-            PowerPoint.DocumentWindow? window = null;
-            PowerPoint.Slide? slide = null;
-            try
-            {
-                if (_app.Windows.Count == 0) return null;
-
-                window = _app.ActiveWindow;
-                slide = window.View.Slide as PowerPoint.Slide;
-                return slide?.SlideID;
-            }
-            catch (COMException)
-            {
-                // No slide in view - the master, a notes page, or a slideshow.
-                return null;
-            }
-            finally
-            {
-                Com.Release(slide);
-                Com.Release(window);
-            }
-        }
-
-        public CommandResult UndoLast()
-        {
-            if (!Undo.TryUndo(out var inverse)) return CommandResult.Failed("Nothing for AlignPro to undo.");
-
-            return ApplyTransaction(inverse);
-        }
-
-        public CommandResult RedoLast()
-        {
-            if (!Undo.TryRedo(out var transaction)) return CommandResult.Failed("Nothing for AlignPro to redo.");
-
-            return ApplyTransaction(transaction);
-        }
-
-        /// <summary>
-        /// Replays a transaction in whichever direction it was handed over. A transaction carries
-        /// geometry, an ordering or created shapes, never more than one, so exactly one branch does
-        /// the work.
-        /// </summary>
-        private CommandResult ApplyTransaction(AlignTransaction transaction)
-        {
-            if (transaction.Creation != null) return ApplyCreation(transaction.Creation, transaction.Direction);
-
-            var outcome = transaction.Order != null
-                ? ChangeApplier.ApplyOrder(_app, _undoSlideId, transaction.Order.NewOrder)
-                : ChangeApplier.Apply(_app, _undoSlideId, transaction.Changes);
-
-            return outcome.Applied == 0
-                ? CommandResult.Failed("The shapes from that operation are no longer on the slide.")
-                : CommandResult.Ok(Skipped(outcome));
-        }
-
-        /// <summary>
         /// The margin as the solver wants it. The solver has always grown shapes on a negative
         /// margin, so the direction dropdown only has to supply the sign.
         /// </summary>
         private double SignedSizeMargin =>
             SizeDirection == SizeDirection.Grow ? -SizeMargin : SizeMargin;
-
-        /// <summary>
-        /// Undo deletes what a duplicate made. Redo makes it again from the originals, and because
-        /// PowerPoint hands the new shapes new ids, records those so the next undo finds them.
-        /// </summary>
-        private CommandResult ApplyCreation(ShapeCreation creation, CreationDirection direction)
-        {
-            if (direction == CreationDirection.Remove)
-            {
-                var removed = ShapeCreator.Remove(_app, _undoSlideId, creation.CreatedKeys);
-                return removed.Applied == 0
-                    ? CommandResult.Failed("The copies from that operation are no longer on the slide.")
-                    : CommandResult.Ok(Skipped(removed));
-            }
-
-            var originals = new List<ShapeKey>();
-            if (creation.Copies.Count > 0)
-            {
-                foreach (var placement in creation.Copies[0].Placements) originals.Add(placement.Source);
-            }
-
-            var outcome = ShapeCreator.Create(_app, _undoSlideId, originals, creation.Copies);
-            creation.Rekey(outcome.Created);
-
-            return outcome.Created.Count == 0
-                ? CommandResult.Failed("The shapes that were duplicated are no longer on the slide.")
-                : CommandResult.Ok();
-        }
 
         private static bool IsMatchSize(AlignVerb verb) =>
             verb == AlignVerb.MatchWidth || verb == AlignVerb.MatchHeight || verb == AlignVerb.MatchBoth;

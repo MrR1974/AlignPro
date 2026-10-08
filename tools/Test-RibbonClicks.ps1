@@ -108,10 +108,8 @@ function Select-AlignProTab {
     Clicks a ribbon button by label pattern. Elements are looked up fresh every time, because the
     ribbon rebuilds them and a cached reference goes stale.
 
-    Matching is by pattern and prefers an enabled control for two reasons. AlignPro's Undo carries a
-    dynamic label - "Undo align top" rather than "Undo" - so an exact match misses it. And the Quick
-    Access Toolbar has its own Undo, so an exact match on "Undo" finds PowerPoint's button instead of
-    ours, which is how this harness failed the first time it ran.
+    Matching is by pattern and prefers an enabled control, because a label can also belong to one of
+    PowerPoint's own buttons elsewhere in the window.
 #>
 function Invoke-RibbonButton {
     param($Window, [string] $Pattern)
@@ -151,12 +149,12 @@ function Get-BlockingDialog {
 }
 
 <#
-    Presses Ctrl+Z as a person would, rather than clicking AlignPro's own Undo button.
+    Presses Ctrl+Z as a person would. AlignPro has no undo of its own: this is the only undo there is.
 
     This is the case UndoBoundary exists for. PowerPoint brackets each of its own commands in an undo
     entry, but object-model writes accumulate into one open entry, so without a boundary a single
     Ctrl+Z reverses every AlignPro operation since the last native edit - and any automation before
-    them. StartNewUndoEntry closes that entry, which should make native undo match the button.
+    them. StartNewUndoEntry closes that entry, so each Ctrl+Z reverses exactly one AlignPro operation.
 #>
 function Send-NativeUndo {
     param($Window)
@@ -260,46 +258,22 @@ Add-Result 'A second click stacks on the first' (($topsMoved -gt 0) -and ($lefts
     "$topsMoved moved vertically, $leftsHeld kept their new left"
 
 # =================================================================================================
-# AlignPro's own Undo, clicked - one operation at a time
+# Ctrl+Z, pressed - must reverse one AlignPro operation at a time
 # =================================================================================================
-$clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
-$undoneTops = Get-Tops -Slide 2 -Names $slide2
-$topsBack = @($slide2 | Where-Object { [Math]::Abs($undoneTops[$_] - $topsBefore[$_]) -le $tolerance }).Count
-$leftsStill = @($slide2 | Where-Object { [Math]::Abs((Get-Lefts -Slide 2 -Names $slide2)[$_] - $afterLeft[$_]) -le $tolerance }).Count
-Add-Result 'Undo reverses only the last operation' (($topsBack -eq $slide2.Count) -and ($leftsStill -eq $slide2.Count)) `
-    "$topsBack tops restored, $leftsStill lefts untouched"
-
-$clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
-$undoneLefts = Get-Lefts -Slide 2 -Names $slide2
-$leftsBack = @($slide2 | Where-Object { [Math]::Abs($undoneLefts[$_] - $before[$_]) -le $tolerance }).Count
-Add-Result 'A second Undo reverses the first operation' ($leftsBack -eq $slide2.Count) `
-    "$leftsBack of $($slide2.Count) back where they started"
-
-# =================================================================================================
-# Native Ctrl+Z - must reverse one AlignPro operation, exactly as the Undo button does
-# =================================================================================================
-$nativeStart = Get-Lefts -Slide 2 -Names $slide2
-Select-Shapes -Slide 2 -Names $slide2
-$clicked = Invoke-RibbonButton -Window $window -Pattern 'Left'
-$nativeLefts = Get-Lefts -Slide 2 -Names $slide2
-Select-Shapes -Slide 2 -Names $slide2
-$clicked = Invoke-RibbonButton -Window $window -Pattern 'Top'
-$nativeTops = Get-Tops -Slide 2 -Names $slide2
-
 Send-NativeUndo -Window $window
 $dialog = Get-BlockingDialog -Window $window
 if ($dialog) { Add-Result 'Ctrl+Z raises no dialog' $false $dialog } else { Add-Result 'Ctrl+Z raises no dialog' $true '' }
 
 $ctrlZTops = Get-Tops -Slide 2 -Names $slide2
 $ctrlZLefts = Get-Lefts -Slide 2 -Names $slide2
-$topsReverted = @($slide2 | Where-Object { [Math]::Abs($ctrlZTops[$_] - $nativeTops[$_]) -gt $tolerance }).Count
-$leftsSurvived = @($slide2 | Where-Object { [Math]::Abs($ctrlZLefts[$_] - $nativeLefts[$_]) -le $tolerance }).Count
-Add-Result 'Ctrl+Z reverses only the last operation' (($topsReverted -gt 0) -and ($leftsSurvived -eq $slide2.Count)) `
-    "$topsReverted moved back vertically, $leftsSurvived of $($slide2.Count) kept their align-left"
+$topsBack = @($slide2 | Where-Object { [Math]::Abs($ctrlZTops[$_] - $topsBefore[$_]) -le $tolerance }).Count
+$leftsSurvived = @($slide2 | Where-Object { [Math]::Abs($ctrlZLefts[$_] - $afterLeft[$_]) -le $tolerance }).Count
+Add-Result 'Ctrl+Z reverses only the last operation' (($topsBack -eq $slide2.Count) -and ($leftsSurvived -eq $slide2.Count)) `
+    "$topsBack of $($slide2.Count) tops restored, $leftsSurvived kept their align-left"
 
 Send-NativeUndo -Window $window
 $secondLefts = Get-Lefts -Slide 2 -Names $slide2
-$leftsReverted = @($slide2 | Where-Object { [Math]::Abs($secondLefts[$_] - $nativeStart[$_]) -le $tolerance }).Count
+$leftsReverted = @($slide2 | Where-Object { [Math]::Abs($secondLefts[$_] - $before[$_]) -le $tolerance }).Count
 Add-Result 'A second Ctrl+Z reverses the first operation' ($leftsReverted -eq $slide2.Count) `
     "$leftsReverted of $($slide2.Count) back where they started"
 
@@ -380,10 +354,10 @@ $r1 = Get-ZOrder -Slide $orderSlide -Name 'Card1'
 $r3 = Get-ZOrder -Slide $orderSlide -Name 'Card3'
 Add-Result 'Clicking Reverse flips the stack' ($r3 -gt $r1) "Card1=$r1 Card3=$r3"
 
-$clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
+Send-NativeUndo -Window $window
 $u1 = Get-ZOrder -Slide $orderSlide -Name 'Card1'
 $u3 = Get-ZOrder -Slide $orderSlide -Name 'Card3'
-Add-Result 'Undo restores the previous stacking' ($u1 -gt $u3) "Card1=$u1 Card3=$u3"
+Add-Result 'Ctrl+Z restores the previous stacking' ($u1 -gt $u3) "Card1=$u1 Card3=$u3"
 
 # =================================================================================================
 # The 1.3 verbs, clicked. Settings go through COM - dropdowns and edit boxes are not what is under
@@ -441,9 +415,91 @@ $ok = ([Math]::Abs($b1.Left + 15 - 190) -le $tolerance) -and ([Math]::Abs($b1.To
       ([Math]::Abs($b2.Left + 15 - 310) -le $tolerance) -and ([Math]::Abs($b2.Rotation - 90) -le 0.6)
 Add-Result 'Clicking Along curve rings the beads' $ok `
     ("Bead1 centre ({0:F1},{1:F1}), Bead2 ({2:F1},{3:F1}) rot {4:F1}" -f ($b1.Left + 15), ($b1.Top + 15), ($b2.Left + 15), ($b2.Top + 15), $b2.Rotation)
-$clicked = Invoke-RibbonButton -Window $window -Pattern 'Undo *'
-Add-Result 'Undo takes the beads back' ([Math]::Abs((Get-Shape 17 'Bead2').Rotation) -le 0.1) `
+Send-NativeUndo -Window $window
+Add-Result 'Ctrl+Z takes the beads back' ([Math]::Abs((Get-Shape 17 'Bead2').Rotation) -le 0.1) `
     ("Bead2 rotation {0:F1}" -f (Get-Shape 17 'Bead2').Rotation)
+
+# Slide 18: shapes picked inside a group, then a real click on Left.
+$panel = $presentation.Slides.Item(18).Shapes.Item('Panel')
+$items = @('Item1', 'Item2', 'Item3')
+[void]$api.SetReference('SelectionBounds')
+[void]$api.SetBoundsModel('ShapeFrame')
+$ppt.ActiveWindow.View.GotoSlide(18)
+Start-Sleep -Milliseconds 250
+$first = $true
+foreach ($n in $items) {
+    $panel.GroupItems.Item($n).Select($(if ($first) { -1 } else { 0 }))
+    $first = $false
+    Start-Sleep -Milliseconds 120
+}
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Left'
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Inside a group raises no dialog' $false $dialog }
+$lefts = $items | ForEach-Object { [Math]::Round($panel.GroupItems.Item($_).Left, 1) }
+$cardLeft = $panel.GroupItems.Item('Card').Left
+$ok = (@($lefts | Sort-Object -Unique).Count -eq 1) -and ($lefts[0] -eq 260) -and ([Math]::Abs($cardLeft - 220) -le $tolerance) -and
+      ($presentation.Slides.Item(18).Shapes.Count -eq 4)
+Add-Result 'Clicking Left inside a group aligns only the picked shapes' $ok `
+    ("lefts {0}; card left {1:F0}; group intact" -f ($lefts -join ', '), $cardLeft)
+Send-NativeUndo -Window $window
+Add-Result 'Ctrl+Z puts them back' ([Math]::Abs($panel.GroupItems.Item('Item2').Left - 330) -le $tolerance) `
+    ("Item2 left {0:F1}, was 330" -f $panel.GroupItems.Item('Item2').Left)
+
+# Stack inside the group. Item1 was made before Item3, so it starts below it; picked first, Stack
+# must lift it on top. The card behind them, not picked, keeps its layer.
+$cardZ = $panel.GroupItems.Item('Card').ZOrderPosition
+$first = $true
+foreach ($n in @('Item1', 'Item3')) {
+    $panel.GroupItems.Item($n).Select($(if ($first) { -1 } else { 0 }))
+    $first = $false
+    Start-Sleep -Milliseconds 120
+}
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Stack'
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Stack inside a group raises no dialog' $false $dialog }
+$z1 = $panel.GroupItems.Item('Item1').ZOrderPosition
+$z3 = $panel.GroupItems.Item('Item3').ZOrderPosition
+Add-Result 'Clicking Stack inside a group restacks within it' (($z1 -gt $z3) -and ($panel.GroupItems.Item('Card').ZOrderPosition -eq $cardZ)) `
+    ("Item1 z={0} Item3 z={1}; card z {2} -> {3}" -f $z1, $z3, $cardZ, $panel.GroupItems.Item('Card').ZOrderPosition)
+Send-NativeUndo -Window $window
+
+# Duplicate inside the group: the copy lands in the group, and the group stays one shape on the slide.
+# The selection is read rather than GroupItems, which PowerShell reads stale after a copy (probe 23).
+[void]$api.SetDuplicate(0, 70, 0, 1, 'OwnCentre')
+$panel.GroupItems.Item('Item1').Select(-1)
+Start-Sleep -Milliseconds 150
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Duplicate'
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Duplicate inside a group raises no dialog' $false $dialog }
+$sel = $ppt.ActiveWindow.Selection
+$picked = 0; $parent = ''
+if ($sel.HasChildShapeRange) { $picked = $sel.ChildShapeRange.Count; $parent = $sel.ChildShapeRange.Item(2).ParentGroup.Name }
+Add-Result 'Clicking Duplicate inside a group copies into the group' (($picked -eq 2) -and ($parent -eq 'Panel') -and ($presentation.Slides.Item(18).Shapes.Count -eq 4)) `
+    ("{0} picked, copy's group '{1}', {2} top-level shapes" -f $picked, $parent, $presentation.Slides.Item(18).Shapes.Count)
+Send-NativeUndo -Window $window
+
+# Slide 19: inside a group turned 15 degrees, Left must follow the group's edge.
+$tiltPanel = $presentation.Slides.Item(19).Shapes.Item('TiltPanel')
+$tiltItems = @('TiltItem1', 'TiltItem2', 'TiltItem3')
+$ppt.ActiveWindow.View.GotoSlide(19)
+Start-Sleep -Milliseconds 250
+$first = $true
+foreach ($n in $tiltItems) {
+    $tiltPanel.GroupItems.Item($n).Select($(if ($first) { -1 } else { 0 }))
+    $first = $false
+    Start-Sleep -Milliseconds 120
+}
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Left'
+$dialog = Get-BlockingDialog -Window $window
+if ($dialog) { Add-Result 'Inside a rotated group raises no dialog' $false $dialog }
+$t = 15 * [Math]::PI / 180
+$along = $tiltItems | ForEach-Object {
+    $c = $tiltPanel.GroupItems.Item($_)
+    [Math]::Round((($c.Left + $c.Width / 2) * [Math]::Cos($t) + ($c.Top + $c.Height / 2) * [Math]::Sin($t)) - $c.Width / 2, 1)
+}
+Add-Result 'Clicking Left inside a rotated group follows its edge' (@($along | Sort-Object -Unique).Count -eq 1) `
+    ("along-group lefts {0}" -f ($along -join ', '))
+Send-NativeUndo -Window $window
 
 # =================================================================================================
 Write-Host ''

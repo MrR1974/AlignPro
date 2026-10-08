@@ -172,8 +172,14 @@ namespace AlignPro.Geometry
     /// </remarks>
     public static class DuplicateSolver
     {
+        /// <summary>Where every copy goes, or why none can be made.</summary>
+        /// <remarks>
+        /// <paramref name="checkSlide"/> false leaves out the notice about copies that land off the
+        /// slide, for a caller whose shapes are not in slide coordinates - <see cref="GroupSpace"/>,
+        /// which checks after turning them back, with <see cref="OffSlideNotice"/>.
+        /// </remarks>
         public static DuplicateResult Solve(
-            DuplicateRequest request, IReadOnlyList<ShapeSnapshot> shapes, SlideMetrics slide)
+            DuplicateRequest request, IReadOnlyList<ShapeSnapshot> shapes, SlideMetrics slide, bool checkSlide = true)
         {
             if (request is null) throw new ArgumentNullException(nameof(request));
             if (shapes is null) throw new ArgumentNullException(nameof(shapes));
@@ -252,15 +258,22 @@ namespace AlignPro.Geometry
                         : "Set X, Y or Angle - with all three at zero every copy lands on the original.");
             }
 
-            var offSlide = CountOffSlide(copies, slide);
-            if (offSlide > 0)
-            {
-                return DuplicateResult.OkWithNotice(copies, offSlide == 1
-                    ? "1 copy lands entirely off the slide."
-                    : string.Format(CultureInfo.CurrentCulture, "{0} copies land entirely off the slide.", offSlide));
-            }
+            var notice = checkSlide ? OffSlideNotice(copies, slide) : null;
+            return notice == null ? DuplicateResult.Ok(copies) : DuplicateResult.OkWithNotice(copies, notice);
+        }
 
-            return DuplicateResult.Ok(copies);
+        /// <summary>
+        /// What to tell the user about copies that land wholly off the slide, or null when none do.
+        /// The placements must be in slide coordinates.
+        /// </summary>
+        public static string? OffSlideNotice(IReadOnlyList<DuplicateCopy> copies, SlideMetrics slide)
+        {
+            var offSlide = CountOffSlide(copies, slide);
+            if (offSlide == 0) return null;
+
+            return offSlide == 1
+                ? "1 copy lands entirely off the slide."
+                : string.Format(CultureInfo.CurrentCulture, "{0} copies land entirely off the slide.", offSlide);
         }
 
         private static bool TryResolvePivot(

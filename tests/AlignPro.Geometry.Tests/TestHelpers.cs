@@ -30,8 +30,8 @@ internal static class Make
     public static ShapeKey Key(int id) => new(SlideId, id);
 
     /// <summary>A 960x540 widescreen slide, matching what the probe measured.</summary>
-    public static SlideMetrics Slide(double margin = 0, RectD? placeholder = null) =>
-        new(960, 540, margin, placeholder);
+    public static SlideMetrics Slide(double margin = 0, RectD? placeholder = null, RectD? group = null) =>
+        new(960, 540, margin, placeholder, group);
 }
 
 internal static class SolveResultExtensions

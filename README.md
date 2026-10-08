@@ -110,6 +110,7 @@ rather than refusing: the runtime registers itself differently on different mach
 that is sometimes wrong should not be allowed to block a machine that is fine. If the AlignPro tab
 then does not appear, [install the runtime](https://aka.ms/VSTORuntimeDownload) and run the
 installer again.
+
 ---
 
 ## Using it
@@ -126,6 +127,7 @@ are crossed with, so a small set of buttons covers a large matrix.
 | **Slide** | The slide edges |
 | **Slide margins** | The slide inset by the **Margin (pt)** box |
 | **Content placeholder** | The body placeholder from the slide's layout |
+| **Group** | The edges of the group the selected shapes are inside — see [Inside a group](#inside-a-group) |
 
 ### Measure
 
@@ -245,14 +247,37 @@ originals and all the copies are left selected, ready for the next command. One 
 copy. For a radial array, duplicate a shape, then use **Along curve** to space the copies round an
 oval.
 
+### Inside a group
+
+Click a group, then click a shape inside it, and Ctrl+click more: AlignPro works on just the shapes
+you picked, and the group stays a group. Select the whole group instead and it moves as one piece,
+as before. Every tool works this way; the shape you click
+last inside the group is the anchor. A group nested inside another needs nothing special — clicking
+into it picks the shapes themselves.
+
+**Reference = Group** measures against the edges of the group the shapes are in, and needs only
+one shape: click into a group, pick one shape, and **Centre** puts it in the middle of the group.
+
+**In a rotated group**, left, top, centre, spacing and the grid all follow the group's own edges,
+so the shapes line up as you see the group, not along the slide. The slide, its margins and the
+content placeholder run the slide's way, so they are refused there, as is **Measure = Text bounds**.
+
+**Order** restacks the picked shapes among the group's own layers and leaves the rest of the slide
+alone. A group that holds another group is the exception: PowerPoint only restacks a shape among
+the shapes of its own inner group, so AlignPro refuses there rather than produce an order you did
+not ask for.
+
+**Duplicate** puts the copies inside the same group, as Ctrl+D does, and they can go straight into
+the next command. In a rotated group, X and Y step along the group's edges, and the **Slide
+centre** pivot is refused there for the same reason as the slide references.
+
 ---
 
 ## Two things worth knowing
 
-**Ctrl+Z works, and so does the Undo button.** Each AlignPro operation gets its own undo entry, so
-Ctrl+Z, the Quick Access Toolbar and AlignPro's own Undo all reverse exactly one operation. The
-difference is only that AlignPro's Undo and Redo name the operation they'll reverse. (Before 1.2.0
-this was not true: an add-in's changes joined a single undo entry that could cover far more than your
+**Ctrl+Z works.** Each AlignPro operation gets its own undo entry, so Ctrl+Z and the Quick Access
+Toolbar's Undo reverse exactly one operation, and Redo puts it back. AlignPro has no undo button of
+its own; PowerPoint's is the one to use. (Before 1.2.0 this was not true: an add-in's changes joined a single undo entry that could cover far more than your
 last action — in testing, one Ctrl+Z removed four slides. Upgrade if you are on an older version.)
 
 **The settings are sticky.** Reference, Measure, Space by, Exact (pt), Margin (pt), Direction and the
@@ -265,7 +290,7 @@ collapsed into a corner.
 
 ## Try it
 
-A seventeen-slide sample deck is **installed alongside the add-in**, at
+A nineteen-slide sample deck is **installed alongside the add-in**, at
 `%LOCALAPPDATA%\AlignPro\AlignPro-Sample.pptx`. It is also here in the repository at
 [`sample/AlignPro-Sample.pptx`](sample/AlignPro-Sample.pptx).
 
@@ -273,7 +298,7 @@ One slide per capability, each captioned with what to try and what should happen
 to start with — align left with **Measure = Shape frame**, undo, then again with **Visual bounds**,
 and watch the rotated shape. Slides 7 to 10 cover ordering and the match-size margin, with a
 concentric-rings slide that uses both together and then Grow. Slides 15 to 17 cover Match rotation,
-Duplicate and Along curve.
+Duplicate and Along curve, and slides 18 and 19 shapes inside a group, plain and rotated.
 
 ---
 ## Building from source
@@ -332,9 +357,9 @@ behaviours are not what the documentation implies.
 Three layers, because each catches what the others cannot:
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 231, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 34, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 25, real ribbon clicks
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 223, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 55, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 28, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over

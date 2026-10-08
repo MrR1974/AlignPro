@@ -40,7 +40,13 @@ namespace AlignPro.Geometry
         SlideMargins,
 
         /// <summary>The body placeholder rectangle from the slide's layout.</summary>
-        PlaceholderBounds
+        PlaceholderBounds,
+
+        /// <summary>
+        /// The frame of the group the selected shapes are inside. Only meaningful for a selection
+        /// made inside a group; see <see cref="SlideMetrics.GroupBounds"/>.
+        /// </summary>
+        Group
     }
 
     /// <summary>Which rectangle of a shape the verb reasons about.</summary>

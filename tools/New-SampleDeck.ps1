@@ -414,6 +414,39 @@ $hint.TextFrame2.TextRange.Text = 'Round an oval the beads go evenly from twelve
 $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
+# =================================================================================================
+# 18. Inside a group
+# =================================================================================================
+$s = Add-Slide -Title 'Inside a group' `
+               -Try  'Click the panel, then click Item 1 inside it and Ctrl+click Items 2 and 3. Align > Left. Undo, then Reference = Group and Align > Centre.'
+Add-Box -Slide $s -Name 'Card'  -X 220 -Y 130 -W 520 -H 300 -Colour (Rgb 222 226 232) -Label '' | Out-Null
+Add-Box -Slide $s -Name 'Item1' -X 260 -Y 160 -W 150 -H 50  -Colour $blue   -Label 'Item 1' | Out-Null
+Add-Box -Slide $s -Name 'Item2' -X 330 -Y 250 -W 190 -H 50  -Colour $green  -Label 'Item 2' | Out-Null
+Add-Box -Slide $s -Name 'Item3' -X 290 -Y 340 -W 120 -H 50  -Colour $orange -Label 'Item 3' | Out-Null
+$panel = $s.Shapes.Range(@('Card', 'Item1', 'Item2', 'Item3')).Group()
+$panel.Name = 'Panel'
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'Shapes picked inside a group are aligned on their own, and the group stays a group. Select the whole panel instead and it moves as one piece. Reference = Group measures against the group''s edges - here the grey card''s - and needs only one shape: try centring Item 2 alone. Order and Duplicate work in here too, and copies stay in the group.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
+# =================================================================================================
+# 19. Inside a rotated group
+# =================================================================================================
+$s = Add-Slide -Title 'Inside a rotated group' `
+               -Try  'Click the tilted panel, then pick Items 1 to 3 inside it. Align > Left: they line up along the panel''s edge, not the slide''s.'
+Add-Box -Slide $s -Name 'TiltCard'  -X 230 -Y 150 -W 500 -H 260 -Colour (Rgb 222 226 232) -Label '' | Out-Null
+Add-Box -Slide $s -Name 'TiltItem1' -X 270 -Y 175 -W 150 -H 50  -Colour $blue   -Label 'Item 1' | Out-Null
+Add-Box -Slide $s -Name 'TiltItem2' -X 340 -Y 255 -W 190 -H 50  -Colour $green  -Label 'Item 2' | Out-Null
+Add-Box -Slide $s -Name 'TiltItem3' -X 300 -Y 335 -W 120 -H 50  -Colour $orange -Label 'Item 3' | Out-Null
+$tilted = $s.Shapes.Range(@('TiltCard', 'TiltItem1', 'TiltItem2', 'TiltItem3')).Group()
+$tilted.Name = 'TiltPanel'
+$tilted.Rotation = 15
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 460, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'Inside a rotated group, left, top, centre and spacing all follow the group''s own edges. Reference = Group works too. Slide, Slide margins, Content placeholder and Measure = Text bounds are refused here, because they run along the slide instead.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
 # --- save, close, reopen --------------------------------------------------------------------------
 if (Test-Path $Path) { Remove-Item $Path -Force }
 $pres.SaveAs($Path, $ppSaveAsOpenXMLPresentation)

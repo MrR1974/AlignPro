@@ -61,20 +61,11 @@ public class ZOrderTests
     }
 
     [Fact]
-    public void TheOldOrderIsRecordedForUndo()
+    public void TheOldOrderIsRecorded()
     {
         var result = Solve(slide: new[] { 1, 2, 3 }, selection: new[] { 2, 3, 1 });
 
         Assert.Equal(new[] { 1, 2, 3 }, Ids(result.Change!.OldOrder));
-    }
-
-    [Fact]
-    public void InvertingRestoresTheOriginalOrder()
-    {
-        var result = Solve(slide: new[] { 1, 9, 2, 8, 3 }, selection: new[] { 1, 2, 3 });
-        var inverse = result.Change!.Inverted();
-
-        Assert.Equal(new[] { 1, 9, 2, 8, 3 }, Ids(inverse.NewOrder));
     }
 
     [Fact]

@@ -219,11 +219,8 @@ try {
     Add-Result 'Frame mode misaligns rotated shape' ($misalignment -gt 2) `
         ("rotated shape sits {0:F1}pt out visually" -f $misalignment)
 
-    # AlignPro's own undo, not ExecuteMso. This is only resetting between two sub-checks, and the
-    # native one reaches the coalesced entry that still covers this fixture's own Slides.Add - which
-    # deletes the slide and takes the rest of the case with it. Cases 1 and 2 above use ExecuteMso
-    # deliberately, because there the coalescing behaviour IS what is under test.
-    [void]$api.Undo()
+    # Back to the starting positions for the second sub-check.
+    $ppt.CommandBars.ExecuteMso('Undo')
 
     # Visual bounds: every shape's VISUAL left edge should line up.
     [void]$api.SetBoundsModel('VisualBounds')
@@ -257,8 +254,7 @@ try {
     Add-Result 'Uniform margin insets every side' $uniform `
         ("A {0:F0}x{1:F0}, B {2:F0}x{3:F0}, expected 140x60" -f $a.Width, $a.Height, $b.Width, $b.Height)
 
-    # AlignPro's own undo, for the same reason as case 3.
-    [void]$api.Undo()
+    $ppt.CommandBars.ExecuteMso('Undo')
 
     # Cascade: A is two steps back from the anchor, B one step.
     $f.Slide.Shapes.Range(@('A', 'B', 'C')).Select($msoTrue)
@@ -315,14 +311,14 @@ try {
         ("BAR slot {0} -> {1}" -f $barSlotBefore, $barSlotAfter)
 
     # Undo must put the original stacking back exactly.
-    [void]$api.Undo()
+    $ppt.CommandBars.ExecuteMso('Undo')
     $orderUndone = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name })
     Add-Result 'Undo restores the stacking order' `
         (($orderUndone -join ',') -eq ($orderBefore -join ',')) `
         ("{0}  ->  {1}" -f ($orderBefore -join ','), ($orderUndone -join ','))
 
     # And redo must put it back again.
-    [void]$api.Redo()
+    $ppt.CommandBars.ExecuteMso('Redo')
     $orderRedone = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name })
     Add-Result 'Redo reapplies the stacking order' `
         (($orderRedone -join ',') -eq ($orderAfter -join ',')) `
@@ -453,15 +449,14 @@ try {
     $selected = $ppt.ActiveWindow.Selection.ShapeRange.Count
     Add-Result 'Originals and copies are left selected' ($selected -eq 8) "$selected selected"
 
-    [void]$api.Undo()
+    $ppt.CommandBars.ExecuteMso('Undo')
     Add-Result 'Undo removes every copy' ($f.Slide.Shapes.Count -eq $countBefore) "$($f.Slide.Shapes.Count) shapes"
 
-    [void]$api.Redo()
+    $ppt.CommandBars.ExecuteMso('Redo')
     Add-Result 'Redo makes them again' ($f.Slide.Shapes.Count -eq $countBefore + 6) "$($f.Slide.Shapes.Count) shapes"
 
-    # The copies redo made have new ids; undo must find those, not the ids from the first run.
-    [void]$api.Undo()
-    Add-Result 'Undo after redo removes the new copies' ($f.Slide.Shapes.Count -eq $countBefore) "$($f.Slide.Shapes.Count) shapes"
+    $ppt.CommandBars.ExecuteMso('Undo')
+    Add-Result 'Undo after redo removes the copies again' ($f.Slide.Shapes.Count -eq $countBefore) "$($f.Slide.Shapes.Count) shapes"
 
     # Native undo: duplicate again, then Ctrl+Z must take away the copies and nothing else.
     Select-InOrder -Fixture $f -Names @('Orig', 'Partner')
@@ -518,7 +513,7 @@ try {
     }
     Add-Result 'Circle: four shapes at twelve, three, six and nine' ($ok -eq 4) "$ok of 4 placed and turned $status"
 
-    [void]$api.Undo()
+    $ppt.CommandBars.ExecuteMso('Undo')
     $back = Get-Centre $f 'Dot1'
     Add-Result 'Circle: undo puts them back' ((Test-Near $back.X 70) -and (Test-Near $back.Y 460) -and (Test-Near $back.R 0 0.1)) `
         ("Dot1 at ({0:F1},{1:F1}) rot {2:F1}" -f $back.X, $back.Y, $back.R)
@@ -567,6 +562,244 @@ try {
     Select-InOrder -Fixture $f -Names @('Dot1', 'Dot4')
     $refusal = $api.RunDistributeCurve()
     Add-Result 'A rectangle is not taken for a curve' ($refusal -like '*oval*') ("said: " + $refusal)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 12: shapes inside a group - picked inside it, worked on, and the group left a group
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'K1' 100 100 60 40)
+    [void](Add-Rect $f 'K2' 220 160 80 50)
+    [void](Add-Rect $f 'K3' 380 130 60 40)
+    [void](Add-Rect $f 'Loose' 600 400 60 40)
+    $grp = $f.Slide.Shapes.Range(@('K1', 'K2', 'K3')).Group()
+    $grp.Name = 'G'
+
+    # Picked inside the group, in order: the selection's ShapeRange is then the group (probe 11).
+    function Select-Children { param([string[]] $Names)
+        $first = $true
+        foreach ($n in $Names) { $grp.GroupItems.Item($n).Select($(if ($first) { $msoTrue } else { $msoFalse })); $first = $false }
+    }
+    function Get-Child { param([string] $Name) $grp.GroupItems.Item($Name) }
+
+    [void]$api.SetReference('SelectionBounds')
+    Select-Children @('K3', 'K1')
+    $status = $api.RunVerb('AlignLeft')
+    $ok = (Test-Near (Get-Child 'K3').Left 100) -and (Test-Near (Get-Child 'K2').Left 220) -and
+          ($f.Slide.Shapes.Count -eq 2) -and ($f.Slide.Shapes.Item('G').GroupItems.Count -eq 3)
+    Add-Result 'Inside a group: align moves only the picked shapes' $ok `
+        ("K3.left={0:F1} K2.left={1:F1}, {2} top-level shapes {3}" -f (Get-Child 'K3').Left, (Get-Child 'K2').Left, $f.Slide.Shapes.Count, $status)
+
+    $ppt.CommandBars.ExecuteMso('Undo')
+    Add-Result 'Inside a group: Ctrl+Z puts it back' (Test-Near (Get-Child 'K3').Left 380) ("K3.left={0:F1}" -f (Get-Child 'K3').Left)
+
+    # Group as the reference: one shape is enough, and it goes to the group's own edge.
+    [void]$api.SetReference('Group')
+    Select-Children @('K2')
+    $status = $api.RunVerb('AlignTop')
+    Add-Result 'Align to Group: to the group''s top edge' (Test-Near (Get-Child 'K2').Top 100) `
+        ("K2.top={0:F1}, expected 100 {1}" -f (Get-Child 'K2').Top, $status)
+
+    # Distribute across the group: the outer two land on its edges, as with the slide.
+    Select-Children @('K1', 'K2', 'K3')
+    $status = $api.RunVerb('DistributeH')
+    $g1 = (Get-Child 'K2').Left - ((Get-Child 'K1').Left + 60)
+    $g2 = (Get-Child 'K3').Left - ((Get-Child 'K2').Left + 80)
+    $ok = (Test-Near (Get-Child 'K1').Left 100) -and (Test-Near ((Get-Child 'K3').Left + 60) 440) -and (Test-Near $g1 $g2)
+    Add-Result 'Distribute inside a group spaces evenly' $ok ("gaps {0:F1} and {1:F1} {2}" -f $g1, $g2, $status)
+
+    [void]$api.SetReference('SelectionBounds')
+    Select-Children @('K2', 'K1')
+    $status = $api.RunVerb('MatchBoth')
+    Add-Result 'Match size inside a group' ((Test-Near (Get-Child 'K2').Width 60) -and (Test-Near (Get-Child 'K2').Height 40)) `
+        ("K2 {0:F0}x{1:F0}, expected 60x40 {2}" -f (Get-Child 'K2').Width, (Get-Child 'K2').Height, $status)
+
+    # Group as a reference makes no sense for loose shapes, and must say how to use it.
+    [void]$api.SetReference('Group')
+    Select-InOrder -Fixture $f -Names @('Loose')
+    $refusal = $api.RunVerb('AlignLeft')
+    Add-Result 'Align to Group refuses shapes not in a group' ($refusal -like '*inside*') ("said: " + $refusal)
+    [void]$api.SetReference('SelectionBounds')
+
+    # Order inside the group: K3 was made last, so it starts on top. Stack with K1 picked first puts
+    # K1 on top of the three; the slide's own order (G below Loose) must not change.
+    $slideBefore = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name }) -join ','
+    $zBefore = @{}; foreach ($n in 'K1', 'K2', 'K3') { $zBefore[$n] = (Get-Child $n).ZOrderPosition }
+    Select-Children @('K1', 'K2', 'K3')
+    $status = $api.RunOrder('StackFirstOnTop')
+    $z = @{}; foreach ($n in 'K1', 'K2', 'K3') { $z[$n] = (Get-Child $n).ZOrderPosition }
+    $slideAfter = @(1..$f.Slide.Shapes.Count | ForEach-Object { $f.Slide.Shapes.Item($_).Name }) -join ','
+    $ok = ($z.K1 -gt $z.K2) -and ($z.K2 -gt $z.K3) -and ($slideAfter -eq $slideBefore) -and ($f.Slide.Shapes.Item('G').GroupItems.Count -eq 3)
+    Add-Result 'Order inside a group restacks within it' $ok `
+        ("z K1={0} K2={1} K3={2}; slide {3} {4}" -f $z.K1, $z.K2, $z.K3, $slideAfter, $status)
+
+    $ppt.CommandBars.ExecuteMso('Undo')
+    $back = ((Get-Child 'K1').ZOrderPosition -eq $zBefore.K1) -and ((Get-Child 'K3').ZOrderPosition -eq $zBefore.K3)
+    Add-Result 'Order inside a group: Ctrl+Z restores the stacking' $back `
+        ("K1 z={0} (was {1}), K3 z={2} (was {3})" -f (Get-Child 'K1').ZOrderPosition, $zBefore.K1, (Get-Child 'K3').ZOrderPosition, $zBefore.K3)
+
+    # Only some of the group picked, with an unpicked shape at the bottom. Restacking renumbers the
+    # group's collection, and an applier that trusted positions in it stacked the wrong shapes here.
+    Select-Children @('K2', 'K3')
+    $status = $api.RunOrder('StackFirstOnTop')
+    $z = @{}; foreach ($n in 'K1', 'K2', 'K3') { $z[$n] = (Get-Child $n).ZOrderPosition }
+    Add-Result 'Order inside a group, part of it picked' (($z.K1 -lt $z.K3) -and ($z.K3 -lt $z.K2)) `
+        ("z K1={0} K3={1} K2={2}, expected rising {3}" -f $z.K1, $z.K3, $z.K2, $status)
+    $ppt.CommandBars.ExecuteMso('Undo')
+
+    # Duplicate inside the group: copies land in it. PowerShell reads a stale GroupItems once shapes
+    # are added to a group (probe 23), so the copies are read through the selection, never GroupItems.
+    $k1Left = (Get-Child 'K1').Left
+    $widthBefore = $f.Slide.Shapes.Item('G').Width
+    [void]$api.SetDuplicate(150, 0, 0, 2, 'OwnCentre')
+    Select-Children @('K1')
+    $status = $api.RunDuplicate()
+    $sel = $ppt.ActiveWindow.Selection
+    # Assigned, not taken from an if-expression: PowerShell would unroll the range into a zero-based array.
+    $picked = $null
+    if ($sel.HasChildShapeRange) { $picked = $sel.ChildShapeRange }
+    $lefts = if ($picked) { @(1..$picked.Count | ForEach-Object { [Math]::Round($picked.Item($_).Left, 1) }) } else { @() }
+    $inGroup = $picked -and (@(1..$picked.Count | Where-Object { $picked.Item($_).ParentGroup.Name -eq 'G' }).Count -eq 3)
+    $ok = ($f.Slide.Shapes.Count -eq 2) -and $inGroup -and ($lefts.Count -eq 3) -and
+          (Test-Near $lefts[1] ($k1Left + 150)) -and (Test-Near $lefts[2] ($k1Left + 300))
+    Add-Result 'Duplicate inside a group puts the copies in the group' $ok `
+        ("lefts {0}; {1} top-level shapes; all in G: {2} {3}" -f ($lefts -join ', '), $f.Slide.Shapes.Count, $inGroup, $status)
+
+    # Straight on to the next verb: the copies must be found, though they were made moments ago.
+    $status = $api.RunVerb('AlignLeft')
+    $picked = $ppt.ActiveWindow.Selection.ChildShapeRange
+    $lefts = @(1..$picked.Count | ForEach-Object { [Math]::Round($picked.Item($_).Left, 1) })
+    Add-Result 'The copies can be aligned straight away' (@($lefts | Sort-Object -Unique).Count -eq 1) `
+        ("lefts {0} {1}" -f ($lefts -join ', '), $status)
+
+    $ppt.CommandBars.ExecuteMso('Undo')
+    $ppt.CommandBars.ExecuteMso('Undo')
+    Add-Result 'Ctrl+Z removes the copies from the group' (Test-Near $f.Slide.Shapes.Item('G').Width $widthBefore) `
+        ("group width {0:F1}, was {1:F1}" -f $f.Slide.Shapes.Item('G').Width, $widthBefore)
+
+    Select-Children @('K1', 'K2', 'K3')
+    $status = $api.RunVerb('GridArrange')
+    $tops = @('K1', 'K2', 'K3') | ForEach-Object { [Math]::Round((Get-Child $_).Top, 1) }
+    $ok = ($f.Slide.Shapes.Count -eq 2) -and ($f.Slide.Shapes.Item('G').GroupItems.Count -eq 3) -and
+          (@($tops | Sort-Object -Unique).Count -le 2)
+    Add-Result 'Grid inside a group arranges the picked shapes' $ok ("tops {0} {1}" -f ($tops -join ', '), $status)
+
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
+# Case 13: inside a rotated group, shapes line up along the group's own axes
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'K1' 100 100 60 40)
+    [void](Add-Rect $f 'K2' 220 160 80 50)
+    [void](Add-Rect $f 'K3' 380 130 60 40)
+    $grp = $f.Slide.Shapes.Range(@('K1', 'K2', 'K3')).Group()
+    $grp.Rotation = 30
+    $theta = 30 * [Math]::PI / 180
+
+    # A point projected onto the group's axes. Projection does not depend on where the turn is
+    # centred, so edges compared this way are safe however the group's frame re-fits after a move.
+    function Get-Along { param($Shape)
+        $cx = $Shape.Left + $Shape.Width / 2; $cy = $Shape.Top + $Shape.Height / 2
+        [pscustomobject]@{
+            Left = ($cx * [Math]::Cos($theta) + $cy * [Math]::Sin($theta)) - $Shape.Width / 2
+            Top  = (-$cx * [Math]::Sin($theta) + $cy * [Math]::Cos($theta)) - $Shape.Height / 2
+        }
+    }
+    function Select-Children { param([string[]] $Names)
+        $first = $true
+        foreach ($n in $Names) { $grp.GroupItems.Item($n).Select($(if ($first) { $msoTrue } else { $msoFalse })); $first = $false }
+    }
+    function Get-Child { param([string] $Name) $grp.GroupItems.Item($Name) }
+
+    [void]$api.SetReference('SelectionBounds')
+    [void]$api.SetBoundsModel('ShapeFrame')
+    $k1 = Get-Along (Get-Child 'K1')
+    $k3Before = [pscustomobject]@{ Left = (Get-Child 'K3').Left; Top = (Get-Child 'K3').Top }
+    Select-Children @('K3', 'K1')
+    $status = $api.RunVerb('AlignLeft')
+    $k3 = Get-Along (Get-Child 'K3')
+    $ok = (Test-Near $k3.Left $k1.Left) -and -not (Test-Near (Get-Child 'K3').Top $k3Before.Top)
+    Add-Result 'Rotated group: align left runs along the group''s axis' $ok `
+        ("K3 along-group left {0:F2}, K1 {1:F2}; slide top {2:F1} -> {3:F1} {4}" -f $k3.Left, $k1.Left, $k3Before.Top, (Get-Child 'K3').Top, $status)
+
+    $ppt.CommandBars.ExecuteMso('Undo')
+    Add-Result 'Rotated group: Ctrl+Z puts it back' ((Test-Near (Get-Child 'K3').Left $k3Before.Left) -and (Test-Near (Get-Child 'K3').Top $k3Before.Top)) `
+        ("K3 at ({0:F1},{1:F1})" -f (Get-Child 'K3').Left, (Get-Child 'K3').Top)
+
+    # The group's top edge along its own axes: its unrotated frame, projected the same way.
+    $groupTop = (Get-Along $grp).Top
+    [void]$api.SetReference('Group')
+    Select-Children @('K2')
+    $status = $api.RunVerb('AlignTop')
+    $k2 = Get-Along (Get-Child 'K2')
+    Add-Result 'Rotated group: align to Group meets the group''s own edge' (Test-Near $k2.Top $groupTop) `
+        ("K2 along-group top {0:F2}, group top {1:F2} {2}" -f $k2.Top, $groupTop, $status)
+
+    [void]$api.SetReference('Slide')
+    Select-Children @('K1', 'K2')
+    $refusal = $api.RunVerb('AlignLeft')
+    Add-Result 'Rotated group: the slide as reference is refused' ($refusal -like '*rotated group*') ("said: " + $refusal)
+
+    # Duplicate in a rotated group steps along the group's own axis.
+    $k1 = Get-Along (Get-Child 'K1')
+    [void]$api.SetDuplicate(120, 0, 0, 1, 'OwnCentre')
+    Select-Children @('K1')
+    $status = $api.RunDuplicate()
+    $picked = $ppt.ActiveWindow.Selection.ChildShapeRange
+    $copy = Get-Along $picked.Item(2)
+    Add-Result 'Rotated group: Duplicate steps along the group''s axis' ((Test-Near $copy.Left ($k1.Left + 120)) -and (Test-Near $copy.Top $k1.Top)) `
+        ("copy along-group ({0:F2},{1:F2}), K1 ({2:F2},{3:F2}) {4}" -f $copy.Left, $copy.Top, $k1.Left, $k1.Top, $status)
+    $ppt.CommandBars.ExecuteMso('Undo')
+
+    [void]$api.SetDuplicate(0, 0, 30, 3, 'SlideCentre')
+    Select-Children @('K1')
+    $refusal = $api.RunDuplicate()
+    Add-Result 'Rotated group: Duplicate about the slide centre is refused' ($refusal -like '*rotated group*') ("said: " + $refusal)
+    [void]$api.SetDuplicate(20, 20, 0, 1, 'OwnCentre')
+    [void]$api.SetReference('SelectionBounds')
+}
+finally { Close-Fixture -Fixture $f }
+
+# A group holding another group: restacking a leaf would only move it within its inner group
+# (probe 19), so Order must refuse rather than produce an order nobody asked for.
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'P1' 100 100 50 30)
+    [void](Add-Rect $f 'P2' 200 100 50 30)
+    [void](Add-Rect $f 'P3' 300 100 50 30)
+    $inner = $f.Slide.Shapes.Range(@('P2', 'P3')).Group()
+    $inner.Name = 'Inner'
+    $outer = $f.Slide.Shapes.Range(@('P1', 'Inner')).Group()
+    $outer.GroupItems.Item('P1').Select($msoTrue)
+    $outer.GroupItems.Item('P2').Select($msoFalse)
+    $refusal = $api.RunOrder('StackFirstOnTop')
+    Add-Result 'Order inside a nested group is refused' ($refusal -like '*another group inside it*') ("said: " + $refusal)
+}
+finally { Close-Fixture -Fixture $f }
+
+# Along curve inside a group: the beads and the ring are all children of one group.
+$f = New-EmptyFixture
+try {
+    $msoShapeOval = 9
+    [void](Add-Rect $f 'Ring' 300 100 200 200 -Type $msoShapeOval)
+    foreach ($i in 1..4) { [void](Add-Rect $f "Dot$i" (60 + $i * 40) 400 20 20) }
+    $grp = $f.Slide.Shapes.Range(@('Ring', 'Dot1', 'Dot2', 'Dot3', 'Dot4')).Group()
+    $first = $true
+    foreach ($n in 'Dot1', 'Dot2', 'Dot3', 'Dot4', 'Ring') {
+        $grp.GroupItems.Item($n).Select($(if ($first) { $msoTrue } else { $msoFalse })); $first = $false
+    }
+    [void]$api.SetExactSpacing('')
+    $status = $api.RunDistributeCurve()
+    $d1 = $grp.GroupItems.Item('Dot1'); $d2 = $grp.GroupItems.Item('Dot2')
+    $ok = (Test-Near ($d1.Left + 10) 400) -and (Test-Near ($d1.Top + 10) 100) -and
+          (Test-Near ($d2.Left + 10) 500) -and (Test-Near ($d2.Top + 10) 200)
+    Add-Result 'Along curve inside a group, round a ring in the same group' $ok `
+        ("Dot1 ({0:F1},{1:F1}) Dot2 ({2:F1},{3:F1}) {4}" -f ($d1.Left + 10), ($d1.Top + 10), ($d2.Left + 10), ($d2.Top + 10), $status)
 }
 finally { Close-Fixture -Fixture $f }
 

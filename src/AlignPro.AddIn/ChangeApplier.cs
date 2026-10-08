@@ -6,7 +6,7 @@ using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace AlignPro.AddIn
 {
-    /// <summary>How much of a transaction actually reached the document.</summary>
+    /// <summary>How much of an operation actually reached the document.</summary>
     internal sealed class ApplyOutcome
     {
         public ApplyOutcome(int applied, int missing)
@@ -17,7 +17,7 @@ namespace AlignPro.AddIn
 
         public int Applied { get; }
 
-        /// <summary>Shapes that no longer exist - deleted since the snapshot, or since the undo.</summary>
+        /// <summary>Shapes that could not be written - deleted since the snapshot, or locked.</summary>
         public int Missing { get; }
     }
 
@@ -29,8 +29,8 @@ namespace AlignPro.AddIn
     {
         /// <summary>
         /// Applies changes to the slide with the given id. Shapes are resolved by
-        /// <see cref="ShapeKey.ShapeId"/> rather than by name, and a shape that has since been deleted
-        /// is skipped rather than throwing - which is what makes undo safe after an edit.
+        /// <see cref="ShapeKey.ShapeId"/> rather than by name, among the slide's shapes and the shapes
+        /// inside its groups, and a shape that has since been deleted is skipped rather than throwing.
         /// </summary>
         public static ApplyOutcome Apply(
             PowerPoint.Application app, int slideId, IReadOnlyList<GeometryChange> changes)
@@ -57,24 +57,11 @@ namespace AlignPro.AddIn
                 shapes = slide.Shapes;
 
                 // One pass over the slide to index shapes by id, rather than a lookup per change.
-                var byId = new Dictionary<int, int>(shapes.Count);
-                for (var i = 1; i <= shapes.Count; i++)
-                {
-                    PowerPoint.Shape? shape = null;
-                    try
-                    {
-                        shape = shapes[i];
-                        byId[shape.Id] = i;
-                    }
-                    finally
-                    {
-                        Com.Release(shape);
-                    }
-                }
+                var byId = IndexById(shapes);
 
                 foreach (var change in changes)
                 {
-                    if (!byId.TryGetValue(change.Key.ShapeId, out var index))
+                    if (!byId.TryGetValue(change.Key.ShapeId, out var place))
                     {
                         missing++;
                         continue;
@@ -83,7 +70,7 @@ namespace AlignPro.AddIn
                     PowerPoint.Shape? shape = null;
                     try
                     {
-                        shape = shapes[index];
+                        shape = Resolve(shapes, place);
                         ApplyChange(shape, change);
                         applied++;
                     }
@@ -110,7 +97,7 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>
-        /// Restacks the slide into the given order, back to front.
+        /// Restacks the slide, or the shapes inside one group, into the given order, back to front.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -150,27 +137,13 @@ namespace AlignPro.AddIn
                 slide = slides.FindBySlideID(slideId);
                 shapes = slide.Shapes;
 
-                // Index by id up front. Positions shift with every BringToFront, so the shape has to
-                // be fetched by identity each time rather than by a remembered index - but the set of
-                // ids on the slide does not change, so one pass to learn them is enough.
-                var present = new HashSet<int>();
-                for (var i = 1; i <= shapes.Count; i++)
-                {
-                    PowerPoint.Shape? shape = null;
-                    try
-                    {
-                        shape = shapes[i];
-                        present.Add(shape.Id);
-                    }
-                    finally
-                    {
-                        Com.Release(shape);
-                    }
-                }
+                // Index by id up front: the set of ids on the slide does not change, so one pass to
+                // learn them is enough. The order is either the slide's or one group's, never a mix.
+                var present = IndexById(shapes);
 
                 foreach (var key in targetOrder)
                 {
-                    if (!present.Contains(key.ShapeId))
+                    if (!present.TryGetValue(key.ShapeId, out var place))
                     {
                         missing++;
                         continue;
@@ -179,10 +152,15 @@ namespace AlignPro.AddIn
                     PowerPoint.Shape? shape = null;
                     try
                     {
-                        // Re-scanned per shape rather than indexed once: every BringToFront renumbers
-                        // the collection, so a remembered index would point at the wrong shape by the
-                        // second call. The Shapes collection has no by-id accessor to use instead.
-                        shape = FindById(shapes, key.ShapeId);
+                        // Re-scanned per call, never taken from the index: every BringToFront renumbers
+                        // the collection it acts in, so a remembered position points at the wrong shape
+                        // by the second call. That holds inside a group too - a ribbon run that trusted
+                        // GroupItems' positions stacked the wrong shapes. A shape inside a group is
+                        // looked for only in its own group, whose place on the slide does not change,
+                        // since a BringToFront there restacks within the group and leaves the slide.
+                        shape = place.Child == 0
+                            ? FindById(shapes, key.ShapeId)
+                            : FindChildById(shapes, place.Index, key.ShapeId);
                         if (shape == null)
                         {
                             missing++;
@@ -215,7 +193,132 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>
-        /// The shape with this id, or null when it is gone. Released by the caller.
+        /// Where each shape on the slide is, by id: its index among the slide's shapes, and for a shape
+        /// inside a group, its index within that group's <c>GroupItems</c> as well. A shape inside a
+        /// group is not in <c>slide.Shapes</c> at all (probe 12), and <c>GroupItems</c> is already
+        /// flattened, so one level covers nested groups too (probe 16).
+        /// </summary>
+        private static Dictionary<int, (int Index, int Child)> IndexById(PowerPoint.Shapes shapes)
+        {
+            const int msoGroup = 6;
+
+            var byId = new Dictionary<int, (int, int)>(shapes.Count);
+            for (var i = 1; i <= shapes.Count; i++)
+            {
+                PowerPoint.Shape? shape = null;
+                PowerPoint.GroupShapes? items = null;
+                try
+                {
+                    shape = shapes[i];
+                    byId[shape.Id] = (i, 0);
+                    if ((int)shape.Type != msoGroup) continue;
+
+                    items = shape.GroupItems;
+                    for (var j = 1; j <= items.Count; j++)
+                    {
+                        PowerPoint.Shape? child = null;
+                        try
+                        {
+                            child = items[j];
+                            byId[child.Id] = (i, j);
+                        }
+                        finally
+                        {
+                            Com.Release(child);
+                        }
+                    }
+                }
+                finally
+                {
+                    Com.Release(items);
+                    Com.Release(shape);
+                }
+            }
+
+            return byId;
+        }
+
+        /// <summary>The shape at a place <see cref="IndexById"/> recorded. Released by the caller.</summary>
+        private static PowerPoint.Shape Resolve(PowerPoint.Shapes shapes, (int Index, int Child) place)
+        {
+            if (place.Child == 0) return shapes[place.Index];
+
+            PowerPoint.Shape? group = null;
+            PowerPoint.GroupShapes? items = null;
+            try
+            {
+                group = shapes[place.Index];
+                items = group.GroupItems;
+                return items[place.Child];
+            }
+            finally
+            {
+                Com.Release(items);
+                Com.Release(group);
+            }
+        }
+
+        /// <summary>
+        /// The shape with this id inside the group at <paramref name="groupIndex"/> among the slide's
+        /// shapes, or null when it is gone. Released by the caller.
+        /// </summary>
+        private static PowerPoint.Shape? FindChildById(PowerPoint.Shapes shapes, int groupIndex, int id)
+        {
+            PowerPoint.Shape? group = null;
+            PowerPoint.GroupShapes? items = null;
+            try
+            {
+                group = shapes[groupIndex];
+                items = group.GroupItems;
+                for (var j = 1; j <= items.Count; j++)
+                {
+                    var child = items[j];
+                    if (child.Id == id) return child;
+                    Com.Release(child);
+                }
+
+                return null;
+            }
+            finally
+            {
+                Com.Release(items);
+                Com.Release(group);
+            }
+        }
+
+        /// <summary>
+        /// The shape with this id at slide level or inside any group, or null when it is gone.
+        /// Released by the caller.
+        /// </summary>
+        internal static PowerPoint.Shape? FindAnywhere(PowerPoint.Shapes shapes, int id)
+        {
+            const int msoGroup = 6;
+
+            var top = FindById(shapes, id);
+            if (top != null) return top;
+
+            for (var i = 1; i <= shapes.Count; i++)
+            {
+                PowerPoint.Shape? shape = null;
+                try
+                {
+                    shape = shapes[i];
+                    if ((int)shape.Type != msoGroup) continue;
+
+                    var child = FindChildById(shapes, i, id);
+                    if (child != null) return child;
+                }
+                finally
+                {
+                    Com.Release(shape);
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The top-level shape with this id, or null when it is gone. Released by the caller.
         /// </summary>
         internal static PowerPoint.Shape? FindById(PowerPoint.Shapes shapes, int id)
         {
