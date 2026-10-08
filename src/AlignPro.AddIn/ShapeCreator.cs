@@ -44,38 +44,37 @@ namespace AlignPro.AddIn
         /// Makes every copy in the recipe and leaves the originals and the copies selected.
         /// </summary>
         /// <param name="originals">The selection, in the order it was selected.</param>
+        /// <remarks>
+        /// The originals are the shapes the reader held, and each copy is kept as <c>Duplicate</c>
+        /// hands it back, to be placed and then selected - nothing is looked up twice.
+        /// </remarks>
         public static CreateOutcome Create(
             PowerPoint.Application app,
             int slideId,
+            ShapeIndex index,
             IReadOnlyList<ShapeKey> originals,
             IReadOnlyList<DuplicateCopy> copies)
         {
             // One native undo entry for the whole operation, as for every other verb.
             UndoBoundary.TryClose(app);
 
-            PowerPoint.Presentation? presentation = null;
-            PowerPoint.Slides? slides = null;
-            PowerPoint.Slide? slide = null;
-            PowerPoint.Shapes? shapes = null;
-
             var created = new List<ShapeKey>();
             var missing = 0;
 
-            try
             {
-                presentation = app.ActivePresentation;
-                slides = presentation.Slides;
-                slide = slides.FindBySlideID(slideId);
-                shapes = slide.Shapes;
-
-                var stacking = StackingOrder(shapes, originals);
-                var backToFront = new List<ShapeKey>(originals);
-                backToFront.Sort((a, b) => stacking[a].CompareTo(stacking[b]));
-
+                // Where each original sits in the stack, by ZOrderPosition - numbered across the whole
+                // slide, so it orders shapes inside a group as well as shapes on the slide. A shape
+                // that is gone sorts last of all, and is counted.
+                var stacking = new Dictionary<ShapeKey, int>(originals.Count);
                 foreach (var original in originals)
                 {
-                    if (stacking[original] == int.MaxValue) missing++;
+                    var shape = index.Find(original.ShapeId);
+                    stacking[original] = shape?.ZOrderPosition ?? int.MaxValue;
+                    if (shape == null) missing++;
                 }
+
+                var backToFront = new List<ShapeKey>(originals);
+                backToFront.Sort((a, b) => stacking[a].CompareTo(stacking[b]));
 
                 foreach (var copy in copies)
                 {
@@ -87,9 +86,10 @@ namespace AlignPro.AddIn
                     foreach (var original in backToFront)
                     {
                         var placement = PlacementFor(copy, original);
-                        if (placement == null) continue;
+                        var source = index.Find(original.ShapeId);
+                        if (placement == null || source == null) continue;
 
-                        var madeKey = DuplicateOne(shapes, slideId, original, placement);
+                        var madeKey = DuplicateOne(source, index, slideId, original, placement);
                         if (madeKey.HasValue) made[original] = madeKey.Value;
                     }
 
@@ -99,43 +99,35 @@ namespace AlignPro.AddIn
                     }
                 }
 
-                SelectAll(shapes, originals, created);
-                return new CreateOutcome(created, missing);
+                SelectAll(index, originals, created);
             }
-            finally
-            {
-                Com.Release(shapes);
-                Com.Release(slide);
-                Com.Release(slides);
-                Com.Release(presentation);
-            }
+
+            return new CreateOutcome(created, missing);
         }
 
+        /// <summary>
+        /// Makes one copy and places it. A shape inside a group is copied into the same group, as
+        /// PowerPoint's own Ctrl+D does (probes 20 to 22). The copy joins the index, so it can be
+        /// selected afterwards without being looked for.
+        /// </summary>
         private static ShapeKey? DuplicateOne(
-            PowerPoint.Shapes shapes, int slideId, ShapeKey original, ShapePlacement placement)
+            PowerPoint.Shape source, ShapeIndex index, int slideId, ShapeKey original, ShapePlacement placement)
         {
-            PowerPoint.Shape? source = null;
             PowerPoint.ShapeRange? duplicated = null;
-            PowerPoint.Shape? copy = null;
             try
             {
-                source = ChangeApplier.FindAnywhere(shapes, original.ShapeId);
-                if (source == null) return null;
-
-                // A shape inside a group is copied into the same group, as PowerPoint's own Ctrl+D
-                // does (probes 20 to 22).
                 duplicated = source.Duplicate();
-                copy = duplicated[1];
+                var copy = duplicated[1];
+                var id = copy.Id;
+                index.Keep(copy, id);
 
-                // Duplicate lands the copy at a small offset from the original. The placement is
-                // absolute, so writing it simply overrides that offset - nothing to undo first.
-                if (!GeometryChange.SameAngle(copy.Rotation, placement.Rotation))
-                {
-                    copy.Rotation = (float)placement.Rotation;
-                }
-
-                ChangeApplier.ApplyFrame(copy, placement.Frame);
-                return new ShapeKey(slideId, copy.Id);
+                // Duplicate lands the copy at a small offset from the original, the same size. The
+                // placement is absolute, so its angle and position are simply written - without
+                // reading the copy first, which would wait on PowerPoint redrawing the slide.
+                copy.Rotation = (float)placement.Rotation;
+                copy.Left = (float)placement.Frame.X;
+                copy.Top = (float)placement.Frame.Y;
+                return new ShapeKey(slideId, id);
             }
             catch (COMException ex)
             {
@@ -144,9 +136,7 @@ namespace AlignPro.AddIn
             }
             finally
             {
-                Com.Release(copy);
                 Com.Release(duplicated);
-                Com.Release(source);
             }
         }
 
@@ -154,18 +144,16 @@ namespace AlignPro.AddIn
         /// Leaves the originals and every copy selected, originals first - so the copies can go
         /// straight into the next verb, and the last copy made is the anchor.
         /// </summary>
-        private static void SelectAll(
-            PowerPoint.Shapes shapes, IReadOnlyList<ShapeKey> originals, IReadOnlyList<ShapeKey> created)
+        private static void SelectAll(ShapeIndex index, IReadOnlyList<ShapeKey> originals, IReadOnlyList<ShapeKey> created)
         {
             var replace = true;
             foreach (var key in Concat(originals, created))
             {
-                PowerPoint.Shape? shape = null;
+                var shape = index.Find(key.ShapeId);
+                if (shape == null) continue;
+
                 try
                 {
-                    shape = ChangeApplier.FindAnywhere(shapes, key.ShapeId);
-                    if (shape == null) continue;
-
                     shape.Select(replace ? Office.MsoTriState.msoTrue : Office.MsoTriState.msoFalse);
                     replace = false;
                 }
@@ -173,10 +161,6 @@ namespace AlignPro.AddIn
                 {
                     // Selection is a convenience; the shapes exist either way.
                     Diagnostics.Log("Selecting " + key + " after duplicate failed: " + ex.Message);
-                }
-                finally
-                {
-                    Com.Release(shape);
                 }
             }
         }
@@ -195,31 +179,6 @@ namespace AlignPro.AddIn
             }
 
             return null;
-        }
-
-        /// <summary>
-        /// Where each original sits in the stack, by <c>ZOrderPosition</c> - numbered across the whole
-        /// slide, so it orders shapes inside a group as well as shapes on the slide. A shape that is
-        /// gone sorts last of all.
-        /// </summary>
-        private static Dictionary<ShapeKey, int> StackingOrder(PowerPoint.Shapes shapes, IReadOnlyList<ShapeKey> originals)
-        {
-            var order = new Dictionary<ShapeKey, int>(originals.Count);
-            foreach (var key in originals)
-            {
-                PowerPoint.Shape? shape = null;
-                try
-                {
-                    shape = ChangeApplier.FindAnywhere(shapes, key.ShapeId);
-                    order[key] = shape?.ZOrderPosition ?? int.MaxValue;
-                }
-                finally
-                {
-                    Com.Release(shape);
-                }
-            }
-
-            return order;
         }
     }
 }

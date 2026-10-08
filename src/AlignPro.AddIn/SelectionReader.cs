@@ -7,8 +7,11 @@ using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace AlignPro.AddIn
 {
-    /// <summary>What the solver needs, read out of PowerPoint in one pass.</summary>
-    internal sealed class SelectionSnapshot
+    /// <summary>
+    /// What the solver needs, read out of PowerPoint in one pass - and the shapes it was read from,
+    /// held so the operation can write back without finding them again. Dispose when done.
+    /// </summary>
+    internal sealed class SelectionSnapshot : IDisposable
     {
         public SelectionSnapshot(
             IReadOnlyList<ShapeSnapshot> shapes,
@@ -19,8 +22,10 @@ namespace AlignPro.AddIn
             CurveDefinition? anchorCurve = null,
             string? anchorCurveProblem = null,
             bool insideGroup = false,
-            double groupRotation = 0)
+            double groupRotation = 0,
+            ShapeIndex? live = null)
         {
+            Live = live ?? new ShapeIndex();
             Shapes = shapes;
             Slide = slide;
             SlideId = slideId;
@@ -54,6 +59,14 @@ namespace AlignPro.AddIn
         public string? AnchorCurveProblem { get; }
 
         public IReadOnlyList<ShapeSnapshot> Shapes { get; }
+
+        /// <summary>
+        /// Every shape that was read, by id - the selection, and for ordering the whole stack it is
+        /// ordered within. Writes go through these.
+        /// </summary>
+        public ShapeIndex Live { get; }
+
+        public void Dispose() => Live.Dispose();
 
         public SlideMetrics Slide { get; }
 
@@ -119,9 +132,12 @@ namespace AlignPro.AddIn
         /// when nothing is selected. Hidden shapes are left out: moving what nobody can see is never what
         /// was meant. A group comes back as one shape, as it does when selected.
         /// </summary>
-        public static SelectionSnapshot? TryReadSlide(PowerPoint.Application app, double margin, out string? problem)
+        public static SelectionSnapshot? TryReadSlide(
+            PowerPoint.Application app, double margin, out string? problem, bool textBounds = false, bool placeholderBounds = false)
         {
             problem = null;
+            var live = new ShapeIndex();
+            var kept = false;
 
             PowerPoint.DocumentWindow? window = null;
             PowerPoint.Slide? slide = null;
@@ -177,29 +193,30 @@ namespace AlignPro.AddIn
                     presentation.PageSetup.SlideWidth,
                     presentation.PageSetup.SlideHeight,
                     margin,
-                    ReadPlaceholderBounds(slide));
+                    placeholderBounds ? ReadPlaceholderBounds(slide) : null);
 
                 all = slide.Shapes;
                 var shapes = new List<ShapeSnapshot>(all.Count);
                 for (var i = 1; i <= all.Count; i++)
                 {
-                    PowerPoint.Shape? shape = null;
-                    try
-                    {
-                        shape = all[i];
-                        if (shape.Visible == Office.MsoTriState.msoFalse) continue;
-                        shapes.Add(ReadShape(shape, slideId));
-                    }
-                    finally
+                    var shape = all[i];
+                    if (shape.Visible == Office.MsoTriState.msoFalse)
                     {
                         Com.Release(shape);
+                        continue;
                     }
+
+                    var snapshot = ReadShape(shape, slideId, textBounds);
+                    live.Keep(shape, snapshot.Key.ShapeId);
+                    shapes.Add(snapshot);
                 }
 
-                return new SelectionSnapshot(shapes, metrics, slideId, anchor: null);
+                kept = true;
+                return new SelectionSnapshot(shapes, metrics, slideId, anchor: null, live: live);
             }
             finally
             {
+                if (!kept) live.Dispose();
                 Com.Release(all);
                 Com.Release(presentation);
                 Com.Release(slide);
@@ -216,9 +233,13 @@ namespace AlignPro.AddIn
             double margin,
             out string? problem,
             bool includeSlideOrder = false,
-            bool includeAnchorCurve = false)
+            bool includeAnchorCurve = false,
+            bool textBounds = false,
+            bool placeholderBounds = false)
         {
             problem = null;
+            var live = new ShapeIndex();
+            var kept = false;
 
             PowerPoint.DocumentWindow? window = null;
             PowerPoint.Selection? selection = null;
@@ -287,7 +308,7 @@ namespace AlignPro.AddIn
                     presentation.PageSetup.SlideWidth,
                     presentation.PageSetup.SlideHeight,
                     margin,
-                    ReadPlaceholderBounds(slide),
+                    placeholderBounds ? ReadPlaceholderBounds(slide) : null,
                     groupBounds);
 
                 var shapes = new List<ShapeSnapshot>(range.Count);
@@ -295,24 +316,19 @@ namespace AlignPro.AddIn
 
                 for (var i = 1; i <= range.Count; i++)
                 {
-                    PowerPoint.Shape? shape = null;
-                    try
-                    {
-                        shape = range[i];
-                        var snapshot = ReadShape(shape, slideId);
-                        shapes.Add(snapshot);
-                        anchor = snapshot.Key;   // ends up holding the last one
-                    }
-                    finally
-                    {
-                        Com.Release(shape);
-                    }
+                    var shape = range[i];
+                    var snapshot = ReadShape(shape, slideId, textBounds);
+                    live.Keep(shape, snapshot.Key.ShapeId);
+                    shapes.Add(snapshot);
+                    anchor = snapshot.Key;   // ends up holding the last one
                 }
 
                 IReadOnlyList<ShapeKey>? slideOrder = null;
                 if (includeSlideOrder)
                 {
-                    slideOrder = insideGroup ? ReadGroupOrder(group!, slideId, out problem) : ReadSlideOrder(slide, slideId);
+                    slideOrder = insideGroup
+                        ? ReadGroupOrder(group!, slideId, live, out problem)
+                        : ReadSlideOrder(slide, slideId, live);
                     if (slideOrder == null) return null;
                 }
 
@@ -332,11 +348,13 @@ namespace AlignPro.AddIn
                     }
                 }
 
+                kept = true;
                 return new SelectionSnapshot(
-                    shapes, metrics, slideId, anchor, slideOrder, curve, curveProblem, insideGroup, groupRotation);
+                    shapes, metrics, slideId, anchor, slideOrder, curve, curveProblem, insideGroup, groupRotation, live);
             }
             finally
             {
+                if (!kept) live.Dispose();
                 Com.Release(presentation);
                 Com.Release(slide);
                 Com.Release(range);
@@ -357,7 +375,7 @@ namespace AlignPro.AddIn
         /// z-position is measured within the group rather than against the slide. The solver refuses
         /// such a selection rather than silently restacking the wrong things.
         /// </remarks>
-        private static IReadOnlyList<ShapeKey> ReadSlideOrder(PowerPoint.Slide slide, int slideId)
+        private static IReadOnlyList<ShapeKey> ReadSlideOrder(PowerPoint.Slide slide, int slideId, ShapeIndex live)
         {
             PowerPoint.Shapes? shapes = null;
             try
@@ -365,18 +383,13 @@ namespace AlignPro.AddIn
                 shapes = slide.Shapes;
                 var order = new List<ShapeKey>(shapes.Count);
 
+                // Every shape in the stack is kept, since restacking brings them to the front in turn.
                 for (var i = 1; i <= shapes.Count; i++)
                 {
-                    PowerPoint.Shape? shape = null;
-                    try
-                    {
-                        shape = shapes[i];
-                        order.Add(new ShapeKey(slideId, shape.Id));
-                    }
-                    finally
-                    {
-                        Com.Release(shape);
-                    }
+                    var shape = shapes[i];
+                    var id = shape.Id;
+                    live.Keep(shape, id);
+                    order.Add(new ShapeKey(slideId, id));
                 }
 
                 return order;
@@ -406,7 +419,8 @@ namespace AlignPro.AddIn
         /// group sits at the very back - means the group holds another, and the selection is refused.
         /// </para>
         /// </remarks>
-        private static IReadOnlyList<ShapeKey>? ReadGroupOrder(PowerPoint.Shape group, int slideId, out string? problem)
+        private static IReadOnlyList<ShapeKey>? ReadGroupOrder(
+            PowerPoint.Shape group, int slideId, ShapeIndex live, out string? problem)
         {
             problem = null;
             PowerPoint.GroupShapes? items = null;
@@ -416,16 +430,10 @@ namespace AlignPro.AddIn
                 var stack = new List<(int Z, int Id)>(items.Count);
                 for (var i = 1; i <= items.Count; i++)
                 {
-                    PowerPoint.Shape? child = null;
-                    try
-                    {
-                        child = items[i];
-                        stack.Add((child.ZOrderPosition, child.Id));
-                    }
-                    finally
-                    {
-                        Com.Release(child);
-                    }
+                    var child = items[i];
+                    var id = child.Id;
+                    live.Keep(child, id);
+                    stack.Add((child.ZOrderPosition, id));
                 }
 
                 stack.Sort((a, b) => a.Z.CompareTo(b.Z));
@@ -576,7 +584,11 @@ namespace AlignPro.AddIn
             }
         }
 
-        private static ShapeSnapshot ReadShape(PowerPoint.Shape shape, int slideId)
+        /// <param name="textBounds">
+        /// Whether to read where the text sits. Only Measure = Text bounds uses it, and it is most of the
+        /// cost of reading a shape, so every other verb leaves it out.
+        /// </param>
+        private static ShapeSnapshot ReadShape(PowerPoint.Shape shape, int slideId, bool textBounds)
         {
             // Read each property exactly once. Every access is a COM call, and chained expressions
             // leave RCWs we cannot release.
@@ -600,7 +612,7 @@ namespace AlignPro.AddIn
                 rotation,
                 flipH,
                 flipV,
-                ReadTextBounds(shape),
+                textBounds ? ReadTextBounds(shape) : null,
                 isGroup: type == MsoGroup,
                 isPlaceholder: type == MsoPlaceholder,
                 name: name,

@@ -32,6 +32,8 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/New-TestDeck.ps1`](../tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
 | [`tools/Test-AlignProEndToEnd.ps1`](../tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Test-RibbonClicks.ps1`](../tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
+| [`tools/Measure-Performance.ps1`](../tools/Measure-Performance.ps1) | Times each kind of operation on a busy 105-shape slide - see [Performance](#performance) |
+| [`tools/Probe-Groups.ps1`](../tools/Probe-Groups.ps1) | Probes 11 to 23: shapes inside groups, rotated groups, nested groups, copies made inside a group |
 | [`object-model-findings.md`](object-model-findings.md) | What the probe measured, and what it means for the design |
 
 ## Installing a development build
@@ -180,6 +182,42 @@ the click harness reports *"Clicking Align Left moves shapes: FAIL - 0 of 4 shap
 
 It deliberately avoids operations that raise a message box, since a modal dialog blocks PowerPoint's
 UI thread; those paths stay covered through the automation surface.
+
+## Performance
+
+Measured 2026-10-08 with `tools/Measure-Performance.ps1` on a 105-shape slide (a 10 x 10 grid of text
+boxes and five groups), best of three, after a code review flagged the cost of COM calls. Every
+command also logs how long it spent reading, solving and writing, so a slow one shows where.
+
+| Operation | Before | After |
+|---|---|---|
+| Align left, 2 shapes | 0.74s | 0.06s |
+| Align left, all 100 | 5.9s | 0.76s |
+| Stack, 2 shapes of 105 | 2.5s | 0.68s |
+| Duplicate 1 shape x20 | 7.0s | 0.83s |
+| Duplicate 10 shapes x5 | 21.7s | 2.4s |
+| Tidy, whole slide | 1.9s | 0.57s |
+
+The solvers were never the cost - Tidy's solve is 2ms - and neither, it turned out, were the writes
+as such. What a benchmark inside the add-in measured on that slide:
+
+- **A read between writes waits for a redraw.** Once a shape on the slide in view has changed,
+  PowerPoint finishes redrawing before it answers any read. The applier used to read each shape's
+  frame before writing it, so every write waited on the last: 40 writes took 0.7 to 2.2s that way,
+  and 51 to 69ms with nothing read in between. Writes now go straight from the snapshot - it already
+  holds what each shape was - and anything that must be read, such as the aspect lock, is read for
+  every shape before the first write. Writing to a slide that is not in view was as fast; freezing
+  the window (`LockWindowUpdate`, `WM_SETREDRAW`) was not.
+- **Fetching a shape costs about 4ms**, by position (`Shapes.Item`) or by walking the collection, and
+  reading a property about 1.5ms. The applier used to index the whole slide before writing, and
+  restacking and duplicating looked shapes up again for every call. Now the reader keeps every shape
+  it reads in a `ShapeIndex` on the snapshot, and the operation writes through those, so nothing is
+  fetched twice and nothing beyond the selection is fetched at all - except the stack, for ordering.
+- **Text bounds were most of the cost of a read**, for every verb, though only Measure = Text bounds
+  uses them; the layout's placeholder likewise, for Content placeholder alone. Both are now read only
+  when the command needs them.
+- Restacking skips the shapes at the back already in place, and editing a box on the ribbon refreshes
+  that box alone rather than the whole ribbon and every icon.
 
 ## Cutting a release
 

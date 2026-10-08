@@ -250,6 +250,7 @@
     <Compile Include="ChangeApplier.cs" />
     <Compile Include="SelectionReader.cs" />
     <Compile Include="ShapeCreator.cs" />
+    <Compile Include="ShapeIndex.cs" />
     <Compile Include="UndoBoundary.cs" />
     <EmbeddedResource Include="Ribbon.xml" />
   </ItemGroup>

@@ -239,7 +239,7 @@ namespace AlignPro.AddIn
                 Warn($"'{text}' is not a number of points. Leave the box blank to even out the existing spacing.");
             }
 
-            Invalidate();
+            Invalidate(control);
         });
 
         public string GetSizeMarginText(Office.IRibbonControl control) =>
@@ -270,7 +270,7 @@ namespace AlignPro.AddIn
                 Controller.SizeMargin = value;
             }
 
-            Invalidate();
+            Invalidate(control);
         });
 
         public string GetMarginText(Office.IRibbonControl control) =>
@@ -287,7 +287,7 @@ namespace AlignPro.AddIn
                 Warn($"'{text}' is not a margin in points. It must be zero or more.");
             }
 
-            Invalidate();
+            Invalidate(control);
         });
 
         public string GetTidyToleranceText(Office.IRibbonControl control) =>
@@ -312,7 +312,7 @@ namespace AlignPro.AddIn
                     text, TidyRequest.MinTolerance, TidyRequest.MaxTolerance));
             }
 
-            Invalidate();
+            Invalidate(control);
         });
 
         public string GetGridColumnsText(Office.IRibbonControl control) =>
@@ -335,7 +335,7 @@ namespace AlignPro.AddIn
                 Warn($"'{text}' is not a column count. Leave the box blank for a near-square grid.");
             }
 
-            Invalidate();
+            Invalidate(control);
         });
 
         /// <summary>The four Duplicate boxes share one getter, keyed on which box is asking.</summary>
@@ -382,7 +382,7 @@ namespace AlignPro.AddIn
                 }
             }
 
-            Invalidate();
+            Invalidate(control);
         });
 
         public bool GetResizeFromCentre(Office.IRibbonControl control) =>
@@ -400,9 +400,11 @@ namespace AlignPro.AddIn
                 text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
 
         /// <summary>
-        /// Refresh the ribbon's dynamic state - the text of the edit boxes after a value was rejected.
+        /// Refreshes one edit box, so a rejected value goes back to the one in force. Only that control:
+        /// invalidating the whole ribbon makes Office ask again for every control's state and every
+        /// icon, which it then rebuilds.
         /// </summary>
-        private void Invalidate() => _ribbon?.Invalidate();
+        private void Invalidate(Office.IRibbonControl control) => _ribbon?.InvalidateControl(control.Id);
 
         /// <summary>
         /// Only speaks up when something did not happen. A successful align says nothing: a dialog after

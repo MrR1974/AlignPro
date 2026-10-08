@@ -38,6 +38,9 @@ namespace AlignPro.AddIn
             return Path.Combine(directory, "alignpro.log");
         }
 
+        /// <summary>Starts timing the stages of one command, for the line it logs when done.</summary>
+        public static StageTimer StartStages() => new StageTimer();
+
         /// <summary>Detail that is only written when <see cref="Verbose"/> is on.</summary>
         public static void LogVerbose(string message)
         {
@@ -68,5 +71,27 @@ namespace AlignPro.AddIn
                 // A failed log write is never worth surfacing to the user.
             }
         }
+    }
+
+    /// <summary>
+    /// How long each stage of a command took - reading the selection, solving, writing back - so
+    /// the log shows where the time went, not just that a command was slow.
+    /// </summary>
+    internal sealed class StageTimer
+    {
+        private readonly System.Diagnostics.Stopwatch _watch = System.Diagnostics.Stopwatch.StartNew();
+        private readonly System.Text.StringBuilder _stages = new System.Text.StringBuilder();
+        private long _last;
+
+        /// <summary>Records the time since the previous mark under <paramref name="stage"/>.</summary>
+        public void Mark(string stage)
+        {
+            var now = _watch.ElapsedMilliseconds;
+            if (_stages.Length > 0) _stages.Append(' ');
+            _stages.Append(stage).Append('=').Append((now - _last).ToString(CultureInfo.InvariantCulture)).Append("ms");
+            _last = now;
+        }
+
+        public override string ToString() => _stages.ToString();
     }
 }
