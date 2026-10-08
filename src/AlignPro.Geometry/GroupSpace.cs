@@ -26,6 +26,9 @@ namespace AlignPro.Geometry
     /// </remarks>
     public static class GroupSpace
     {
+        private const string TextBoundsRefusal =
+            "Inside a rotated group, PowerPoint does not report where the text sits along the group's edges. Use Measure = Shape frame or Visual bounds.";
+
         /// <summary>
         /// Solves <paramref name="request"/> for shapes inside a group turned by
         /// <paramref name="groupAngle"/> degrees, whose frame is <see cref="SlideMetrics.GroupBounds"/>.
@@ -40,31 +43,12 @@ namespace AlignPro.Geometry
 
             if (GeometryChange.SameAngle(groupAngle, 0)) return AlignSolver.Solve(request, shapes, slide);
 
-            if (!slide.GroupBounds.HasValue)
-            {
-                throw new ArgumentException("A rotated group needs its frame in SlideMetrics.GroupBounds.", nameof(slide));
-            }
-
+            var group = RequireGroup(slide.GroupBounds, nameof(slide));
             var refusal = Refusal(request);
             if (refusal != null) return SolveResult.Refused(refusal);
 
-            var group = slide.GroupBounds.Value;
-            var pivot = new PointD(group.CentreX, group.CentreY);
-
-            var turned = shapes.Select(s => ToGroup(s, pivot, groupAngle)).ToList();
             var groupSlide = new SlideMetrics(slide.Width, slide.Height, slide.Margin, groupBounds: group);
-
-            var result = AlignSolver.Solve(request, turned, groupSlide);
-            if (!result.Succeeded) return result;
-
-            var originals = shapes.ToDictionary(s => s.Key);
-            var changes = result.Changes
-                .Select(c => FromGroup(c, originals[c.Key], pivot, groupAngle))
-                .ToList();
-
-            return result.Notable
-                ? SolveResult.OkWithNotice(changes, result.Diagnostics.ToArray())
-                : SolveResult.Ok(changes, result.Diagnostics.ToArray());
+            return SolveTurned(shapes, group, groupAngle, turned => AlignSolver.Solve(request, turned, groupSlide));
         }
 
         /// <summary>
@@ -81,22 +65,17 @@ namespace AlignPro.Geometry
 
             if (GeometryChange.SameAngle(groupAngle, 0)) return DuplicateSolver.Solve(request, shapes, slide);
 
-            if (!slide.GroupBounds.HasValue)
-            {
-                throw new ArgumentException("A rotated group needs its frame in SlideMetrics.GroupBounds.", nameof(slide));
-            }
-
+            var group = RequireGroup(slide.GroupBounds, nameof(slide));
             if (request.Pivot == DuplicatePivot.SlideCentre)
             {
                 return DuplicateResult.Refused(
                     "Inside a rotated group, copies step along the group's own edges, so the slide's centre is no pivot for them. Use Own centre, Selection centre or Anchor centre.");
             }
 
-            var group = slide.GroupBounds.Value;
-            var pivot = new PointD(group.CentreX, group.CentreY);
-            var turned = shapes.Select(s => ToGroup(s, pivot, groupAngle)).ToList();
-
-            var result = DuplicateSolver.Solve(request, turned, slide, checkSlide: false);
+            // Placements rather than changes, so this one turns back by hand - and checks for copies
+            // off the slide only once they are back in slide coordinates.
+            var pivot = PivotOf(group);
+            var result = DuplicateSolver.Solve(request, Turned(shapes, pivot, groupAngle), slide, checkSlide: false);
             if (!result.Succeeded) return result;
 
             var copies = result.Copies
@@ -126,21 +105,25 @@ namespace AlignPro.Geometry
 
             if (GeometryChange.SameAngle(groupAngle, 0)) return TidySolver.Solve(request, shapes);
 
-            if (!groupBounds.HasValue)
-            {
-                throw new ArgumentException("A rotated group needs its frame.", nameof(groupBounds));
-            }
+            var group = RequireGroup(groupBounds, nameof(groupBounds));
+            if (request.BoundsModel == BoundsModel.TextBounds) return SolveResult.Refused(TextBoundsRefusal);
 
-            if (request.BoundsModel == BoundsModel.TextBounds)
-            {
-                return SolveResult.Refused(
-                    "Inside a rotated group, PowerPoint does not report where the text sits along the group's edges. Use Measure = Shape frame or Visual bounds.");
-            }
+            return SolveTurned(shapes, group, groupAngle, turned => TidySolver.Solve(request, turned));
+        }
 
-            var pivot = new PointD(groupBounds.Value.CentreX, groupBounds.Value.CentreY);
-            var turned = shapes.Select(s => ToGroup(s, pivot, groupAngle)).ToList();
-
-            var result = TidySolver.Solve(request, turned);
+        /// <summary>
+        /// The change of coordinates every verb that returns changes shares: turn the shapes into the
+        /// group's axes, solve there, and turn each change back into slide space. A refusal or failure
+        /// comes back as the solver gave it.
+        /// </summary>
+        private static SolveResult SolveTurned(
+            IReadOnlyList<ShapeSnapshot> shapes,
+            RectD group,
+            double groupAngle,
+            Func<IReadOnlyList<ShapeSnapshot>, SolveResult> solve)
+        {
+            var pivot = PivotOf(group);
+            var result = solve(Turned(shapes, pivot, groupAngle));
             if (!result.Succeeded) return result;
 
             var originals = shapes.ToDictionary(s => s.Key);
@@ -153,6 +136,16 @@ namespace AlignPro.Geometry
                 : SolveResult.Ok(changes, result.Diagnostics.ToArray());
         }
 
+        /// <summary>The group's frame, which a rotated group cannot be solved without.</summary>
+        private static RectD RequireGroup(RectD? groupBounds, string parameter) =>
+            groupBounds ?? throw new ArgumentException("A rotated group needs its frame.", parameter);
+
+        /// <summary>The point the group turns about: any fixed point would do, and its centre is natural.</summary>
+        private static PointD PivotOf(RectD group) => new PointD(group.CentreX, group.CentreY);
+
+        private static List<ShapeSnapshot> Turned(IReadOnlyList<ShapeSnapshot> shapes, PointD pivot, double groupAngle) =>
+            shapes.Select(s => ToGroup(s, pivot, groupAngle)).ToList();
+
         private static string? Refusal(AlignRequest request)
         {
             switch (request.Reference)
@@ -163,12 +156,7 @@ namespace AlignPro.Geometry
                     return "Inside a rotated group, shapes line up along the group's own edges, and the slide's edges run a different way. Use Reference = Group, Anchor or Selection bounds.";
             }
 
-            if (request.BoundsModel == BoundsModel.TextBounds)
-            {
-                return "Inside a rotated group, PowerPoint does not report where the text sits along the group's edges. Use Measure = Shape frame or Visual bounds.";
-            }
-
-            return null;
+            return request.BoundsModel == BoundsModel.TextBounds ? TextBoundsRefusal : null;
         }
 
         /// <summary>A shape as seen along the group's axes: centre turned back, angle made relative.</summary>

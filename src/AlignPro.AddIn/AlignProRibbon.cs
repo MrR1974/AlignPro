@@ -220,123 +220,32 @@ namespace AlignPro.AddIn
         public string GetSpacingText(Office.IRibbonControl control) =>
             Controller.ExactSpacing?.ToString("0.##", CultureInfo.CurrentCulture) ?? string.Empty;
 
-        public void OnSpacingChange(Office.IRibbonControl control, string text) => Guard(() =>
-        {
-            // Blank means "even out what is already there", which is a meaningful setting rather than
-            // a validation failure.
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                Controller.ExactSpacing = null;
-                return;
-            }
-
-            if (TryParsePoints(text, out var value))
-            {
-                Controller.ExactSpacing = value;
-            }
-            else
-            {
-                Warn($"'{text}' is not a number of points. Leave the box blank to even out the existing spacing.");
-            }
-
-            Invalidate(control);
-        });
+        public void OnSpacingChange(Office.IRibbonControl control, string text) =>
+            Guard(() => Accept(control, Controller.SetExactSpacing(text)));
 
         public string GetSizeMarginText(Office.IRibbonControl control) =>
             Controller.SizeMargin.ToString("0.##", CultureInfo.CurrentCulture);
 
-        public void OnSizeMarginChange(Office.IRibbonControl control, string text) => Guard(() =>
-        {
-            // Blank is the same as zero here - the mode dropdown is what turns the margin off, so an
-            // empty box should not need a separate meaning.
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                Controller.SizeMargin = 0;
-                return;
-            }
-
-            // The sign belongs to the Direction dropdown. Accepting a negative here as well would give
-            // two controls that can cancel each other out, and Grow with -10 shrinking is a puzzle.
-            if (!TryParsePoints(text, out var value))
-            {
-                Warn($"'{text}' is not a margin in points.");
-            }
-            else if (value < 0)
-            {
-                Warn($"The margin is always a positive number. To make the shapes larger than the anchor, set Direction to Grow and enter {(-value).ToString("0.##", CultureInfo.CurrentCulture)}.");
-            }
-            else
-            {
-                Controller.SizeMargin = value;
-            }
-
-            Invalidate(control);
-        });
+        public void OnSizeMarginChange(Office.IRibbonControl control, string text) =>
+            Guard(() => Accept(control, Controller.SetSizeMargin(text)));
 
         public string GetMarginText(Office.IRibbonControl control) =>
             Controller.Margin.ToString("0.##", CultureInfo.CurrentCulture);
 
-        public void OnMarginChange(Office.IRibbonControl control, string text) => Guard(() =>
-        {
-            if (TryParsePoints(text, out var value) && value >= 0)
-            {
-                Controller.Margin = value;
-            }
-            else
-            {
-                Warn($"'{text}' is not a margin in points. It must be zero or more.");
-            }
-
-            Invalidate(control);
-        });
+        public void OnMarginChange(Office.IRibbonControl control, string text) =>
+            Guard(() => Accept(control, Controller.SetMargin(text)));
 
         public string GetTidyToleranceText(Office.IRibbonControl control) =>
             Controller.TidyTolerance.ToString("0.##", CultureInfo.CurrentCulture);
 
-        public void OnTidyToleranceChange(Office.IRibbonControl control, string text) => Guard(() =>
-        {
-            // Blank goes back to the default rather than to zero, which Tidy would refuse.
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                Controller.TidyTolerance = TidyRequest.DefaultTolerance;
-            }
-            else if (TryParsePoints(text, out var value) &&
-                     value >= TidyRequest.MinTolerance && value <= TidyRequest.MaxTolerance)
-            {
-                Controller.TidyTolerance = value;
-            }
-            else
-            {
-                Warn(string.Format(CultureInfo.CurrentCulture,
-                    "'{0}' is not a tolerance Tidy can use. Enter a number of points from {1} to {2}.",
-                    text, TidyRequest.MinTolerance, TidyRequest.MaxTolerance));
-            }
-
-            Invalidate(control);
-        });
+        public void OnTidyToleranceChange(Office.IRibbonControl control, string text) =>
+            Guard(() => Accept(control, Controller.SetTidyTolerance(text)));
 
         public string GetGridColumnsText(Office.IRibbonControl control) =>
             Controller.GridColumns?.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
 
-        public void OnGridColumnsChange(Office.IRibbonControl control, string text) => Guard(() =>
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                Controller.GridColumns = null;
-                return;
-            }
-
-            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var columns) && columns >= 1)
-            {
-                Controller.GridColumns = columns;
-            }
-            else
-            {
-                Warn($"'{text}' is not a column count. Leave the box blank for a near-square grid.");
-            }
-
-            Invalidate(control);
-        });
+        public void OnGridColumnsChange(Office.IRibbonControl control, string text) =>
+            Guard(() => Accept(control, Controller.SetGridColumns(text)));
 
         /// <summary>The four Duplicate boxes share one getter, keyed on which box is asking.</summary>
         public string GetDuplicateText(Office.IRibbonControl control) => control.Id switch
@@ -349,41 +258,13 @@ namespace AlignPro.AddIn
         };
 
         public void OnDuplicateTextChange(Office.IRibbonControl control, string text) => Guard(() =>
-        {
-            // Blank is zero for the three step boxes: an empty field is inert, which is exactly what
-            // a zero is in the step.
-            if (control.Id == "ebDupCopies")
+            Accept(control, control.Id switch
             {
-                if (int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var copies) &&
-                    copies >= 1 && copies <= DuplicateRequest.MaxCopies)
-                {
-                    Controller.DuplicateCopies = copies;
-                }
-                else
-                {
-                    Warn($"'{text}' is not a number of copies. Enter a whole number from 1 to {DuplicateRequest.MaxCopies}.");
-                }
-            }
-            else
-            {
-                var value = 0.0;
-                if (!string.IsNullOrWhiteSpace(text) && !TryParsePoints(text, out value))
-                {
-                    Warn($"'{text}' is not a number.");
-                }
-                else
-                {
-                    switch (control.Id)
-                    {
-                        case "ebDupX": Controller.DuplicateX = value; break;
-                        case "ebDupY": Controller.DuplicateY = value; break;
-                        case "ebDupAngle": Controller.DuplicateAngle = value; break;
-                    }
-                }
-            }
-
-            Invalidate(control);
-        });
+                "ebDupCopies" => Controller.SetDuplicateCopies(text),
+                "ebDupX" => Controller.SetDuplicateStep(DuplicateStep.X, text),
+                "ebDupY" => Controller.SetDuplicateStep(DuplicateStep.Y, text),
+                _ => Controller.SetDuplicateStep(DuplicateStep.Angle, text)
+            }));
 
         public bool GetResizeFromCentre(Office.IRibbonControl control) =>
             Controller.ResizeOrigin == ResizeOrigin.Centre;
@@ -393,11 +274,15 @@ namespace AlignPro.AddIn
 
         // -- plumbing ----------------------------------------------------------------------------
 
-        private static bool TryParsePoints(string text, out double value) =>
-            double.TryParse(
-                text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) ||
-            double.TryParse(
-                text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
+        /// <summary>
+        /// Reports a rejected value and refreshes the box, so it shows the value still in force. The
+        /// controller decides what is acceptable; the ribbon only says so.
+        /// </summary>
+        private void Accept(Office.IRibbonControl control, string? error)
+        {
+            if (error != null) Warn(error);
+            Invalidate(control);
+        }
 
         /// <summary>
         /// Refreshes one edit box, so a rejected value goes back to the one in force. Only that control:

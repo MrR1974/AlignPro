@@ -828,9 +828,9 @@ try {
     $said = $api.RunTidy()
     Add-Result 'Tidy again finds nothing to do, and says so' ($said -like 'Nothing to tidy*') ("said: " + $said)
 
-    [void]$api.SetTidyTolerance('25')
-    $said = $api.RunTidy()
-    Add-Result 'A tolerance out of range is refused' ($said -like '*tolerance*') ("said: " + $said)
+    # Refused where it is set, as the ribbon box refuses it, not later when Tidy runs.
+    $said = $api.SetTidyTolerance('25')
+    Add-Result 'A tolerance out of range is refused' (($said -like '*tolerance*') -and ($api.Describe() -like '*tidyTolerance=3*')) ("said: " + $said)
     [void]$api.SetTidyTolerance('')
 }
 finally { Close-Fixture -Fixture $f }

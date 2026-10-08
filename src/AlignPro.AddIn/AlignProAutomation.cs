@@ -145,49 +145,14 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>Sets exact spacing in points. An empty string clears it.</summary>
-        public string SetExactSpacing(string points)
-        {
-            if (string.IsNullOrWhiteSpace(points))
-            {
-                Controller.ExactSpacing = null;
-                return string.Empty;
-            }
-
-            if (!double.TryParse(points, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-            {
-                return "'" + points + "' is not a number.";
-            }
-
-            Controller.ExactSpacing = value;
-            return string.Empty;
-        }
+        public string SetExactSpacing(string points) => Controller.SetExactSpacing(points) ?? string.Empty;
 
         /// <summary>
         /// Sets the match-size margin in points, measured per side. Refuses a negative number, as the
         /// ribbon does - <see cref="SetSizeDirection"/> is what makes the shapes grow. An empty string
         /// clears it.
         /// </summary>
-        public string SetSizeMargin(string points)
-        {
-            if (string.IsNullOrWhiteSpace(points))
-            {
-                Controller.SizeMargin = 0;
-                return string.Empty;
-            }
-
-            if (!double.TryParse(points, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-            {
-                return "'" + points + "' is not a number.";
-            }
-
-            if (value < 0)
-            {
-                return "The margin is always positive. Use SetSizeDirection('Grow') to make the shapes larger.";
-            }
-
-            Controller.SizeMargin = value;
-            return string.Empty;
-        }
+        public string SetSizeMargin(string points) => Controller.SetSizeMargin(points) ?? string.Empty;
 
         /// <summary>Sets which way the margin goes: "Shrink" or "Grow".</summary>
         public string SetSizeDirection(string direction)
@@ -225,22 +190,7 @@ namespace AlignPro.AddIn
         public string RunTidy() => Controller.RunTidy("Tidy").Message ?? string.Empty;
 
         /// <summary>Sets Tidy's tolerance in points. Blank restores the default.</summary>
-        public string SetTidyTolerance(string points)
-        {
-            if (string.IsNullOrWhiteSpace(points))
-            {
-                Controller.TidyTolerance = TidyRequest.DefaultTolerance;
-                return string.Empty;
-            }
-
-            if (!double.TryParse(points, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-            {
-                return "'" + points + "' is not a number.";
-            }
-
-            Controller.TidyTolerance = value;
-            return string.Empty;
-        }
+        public string SetTidyTolerance(string points) => Controller.SetTidyTolerance(points) ?? string.Empty;
 
         /// <summary>
         /// Places the selection along the curve selected last, as the ribbon's Along curve button does.
@@ -260,15 +210,12 @@ namespace AlignPro.AddIn
                 return "Unknown pivot '" + pivot + "'.";
             }
 
-            if (copies < 1 || copies > DuplicateRequest.MaxCopies)
-            {
-                return "Copies must be from 1 to " + DuplicateRequest.MaxCopies.ToString(CultureInfo.InvariantCulture) + ".";
-            }
+            var refused = Controller.SetDuplicateCopies(copies);
+            if (refused != null) return refused;
 
             Controller.DuplicateX = x;
             Controller.DuplicateY = y;
             Controller.DuplicateAngle = angle;
-            Controller.DuplicateCopies = copies;
             Controller.DuplicatePivot = parsed;
             return string.Empty;
         }
@@ -281,21 +228,6 @@ namespace AlignPro.AddIn
         }
 
         /// <summary>Sets the grid column count. An empty string means a near-square grid.</summary>
-        public string SetGridColumns(string columns)
-        {
-            if (string.IsNullOrWhiteSpace(columns))
-            {
-                Controller.GridColumns = null;
-                return string.Empty;
-            }
-
-            if (!int.TryParse(columns, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) || value < 1)
-            {
-                return "'" + columns + "' is not a column count.";
-            }
-
-            Controller.GridColumns = value;
-            return string.Empty;
-        }
+        public string SetGridColumns(string columns) => Controller.SetGridColumns(columns) ?? string.Empty;
     }
 }

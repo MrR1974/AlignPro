@@ -36,6 +36,9 @@ namespace AlignPro.AddIn
         public static CommandResult Failed(string message) => new CommandResult(false, message, true);
     }
 
+    /// <summary>Which number of the duplicate step a box sets.</summary>
+    internal enum DuplicateStep { X, Y, Angle }
+
     /// <summary>Which way the match-size margin goes.</summary>
     internal enum SizeDirection
     {
@@ -109,6 +112,156 @@ namespace AlignPro.AddIn
 
         /// <summary>How close, in points, shapes must be for Tidy to treat them as meant to line up.</summary>
         public double TidyTolerance { get; set; } = TidyRequest.DefaultTolerance;
+
+        // -- settings typed as text -----------------------------------------------------------------
+        // The ribbon's boxes and the automation surface both set these from text, through here, so the
+        // two cannot accept different things. Each returns null when the value was taken, or what was
+        // wrong with it, and leaves the setting alone.
+
+        /// <summary>Exact spacing in points; blank means "even out what is already there".</summary>
+        public string? SetExactSpacing(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                ExactSpacing = null;
+                return null;
+            }
+
+            if (!TryParsePoints(text, out var value))
+            {
+                return $"'{text}' is not a number of points. Leave it blank to even out the existing spacing.";
+            }
+
+            ExactSpacing = value;
+            return null;
+        }
+
+        /// <summary>
+        /// The match-size margin in points, per side; blank is zero. Never negative: the sign belongs
+        /// to <see cref="SizeDirection"/>, and two settings that can cancel each other out - Grow with
+        /// -10, shrinking - would be a puzzle.
+        /// </summary>
+        public string? SetSizeMargin(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                SizeMargin = 0;
+                return null;
+            }
+
+            if (!TryParsePoints(text, out var value)) return $"'{text}' is not a margin in points.";
+            if (value < 0)
+            {
+                return string.Format(CultureInfo.CurrentCulture,
+                    "The margin is always a positive number. To make the shapes larger than the anchor, set Direction to Grow and enter {0:0.##}.",
+                    -value);
+            }
+
+            SizeMargin = value;
+            return null;
+        }
+
+        /// <summary>The slide-margins inset, in points: zero or more.</summary>
+        public string? SetMargin(string text)
+        {
+            if (!TryParsePoints(text, out var value) || value < 0)
+            {
+                return $"'{text}' is not a margin in points. It must be zero or more.";
+            }
+
+            Margin = value;
+            return null;
+        }
+
+        /// <summary>Tidy's tolerance in points, within the range Tidy accepts; blank restores the default.</summary>
+        public string? SetTidyTolerance(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                TidyTolerance = TidyRequest.DefaultTolerance;
+                return null;
+            }
+
+            if (!TryParsePoints(text, out var value) || value < TidyRequest.MinTolerance || value > TidyRequest.MaxTolerance)
+            {
+                return string.Format(CultureInfo.CurrentCulture,
+                    "'{0}' is not a tolerance Tidy can use. Enter a number of points from {1} to {2}.",
+                    text, TidyRequest.MinTolerance, TidyRequest.MaxTolerance);
+            }
+
+            TidyTolerance = value;
+            return null;
+        }
+
+        /// <summary>Grid columns, one or more; blank means a near-square grid.</summary>
+        public string? SetGridColumns(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                GridColumns = null;
+                return null;
+            }
+
+            if (!TryParseWhole(text, out var columns) || columns < 1)
+            {
+                return $"'{text}' is not a column count. Leave it blank for a near-square grid.";
+            }
+
+            GridColumns = columns;
+            return null;
+        }
+
+        /// <summary>One number of the duplicate step - X, Y or Angle. Blank is zero, which is inert in a step.</summary>
+        public string? SetDuplicateStep(DuplicateStep part, string text)
+        {
+            var value = 0.0;
+            if (!string.IsNullOrWhiteSpace(text) && !TryParsePoints(text, out value))
+            {
+                return $"'{text}' is not a number.";
+            }
+
+            switch (part)
+            {
+                case DuplicateStep.X: DuplicateX = value; break;
+                case DuplicateStep.Y: DuplicateY = value; break;
+                default: DuplicateAngle = value; break;
+            }
+
+            return null;
+        }
+
+        /// <summary>How many copies Duplicate makes: a whole number from one to the limit.</summary>
+        public string? SetDuplicateCopies(string text)
+        {
+            if (!TryParseWhole(text, out var copies)) return CopiesRefusal(text);
+            return SetDuplicateCopies(copies, text);
+        }
+
+        /// <inheritdoc cref="SetDuplicateCopies(string)"/>
+        public string? SetDuplicateCopies(int copies) => SetDuplicateCopies(copies, copies.ToString(CultureInfo.CurrentCulture));
+
+        private string? SetDuplicateCopies(int copies, string asTyped)
+        {
+            if (copies < 1 || copies > DuplicateRequest.MaxCopies) return CopiesRefusal(asTyped);
+
+            DuplicateCopies = copies;
+            return null;
+        }
+
+        private static string CopiesRefusal(string asTyped) =>
+            $"'{asTyped}' is not a number of copies. Enter a whole number from 1 to {DuplicateRequest.MaxCopies}.";
+
+        /// <summary>
+        /// A number as the user's locale writes it, or failing that as script does - so "1,5" works on
+        /// a French machine and "1.5" works everywhere.
+        /// </summary>
+        private static bool TryParsePoints(string text, out double value) =>
+            double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value) ||
+            double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value);
+
+        private static bool TryParseWhole(string text, out int value) =>
+            int.TryParse(text, NumberStyles.Integer, CultureInfo.CurrentCulture, out value) ||
+            int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
 
         public CommandResult Run(AlignVerb verb, string label)
         {
