@@ -229,6 +229,11 @@ resizes or turns them, and leaves connectors to follow the shapes they join. Bec
 hard to see, it always says what it did. It uses **Measure** like the align buttons, so choose
 **Visual bounds** when rotated shapes are involved.
 
+With **nothing selected**, Tidy works on the whole slide: every visible shape, with placeholders
+holding still for others to snap to, and connectors and hidden shapes left out. Its report starts by
+saying it looked at the whole slide, so a click with nothing selected by accident is obvious — and
+Ctrl+Z undoes it.
+
 ### Duplicate
 
 Makes copies of the selection, each one step on from the one before. A step is: turn by **Angle**
@@ -366,8 +371,8 @@ Three layers, because each catches what the others cannot:
 
 ```powershell
 dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 253, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 61, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 31, real ribbon clicks
+.\tools\Test-AlignProEndToEnd.ps1                                          # 65, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 32, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over

@@ -87,6 +87,106 @@ namespace AlignPro.AddIn
         private const int MsoPlaceholder = 14;
 
         /// <summary>
+        /// True when no shape is selected on the slide in view - nothing at all, or only slides in the
+        /// thumbnail pane. Tidy then works on the whole slide.
+        /// </summary>
+        public static bool NothingSelected(PowerPoint.Application app)
+        {
+            PowerPoint.DocumentWindow? window = null;
+            PowerPoint.Selection? selection = null;
+            try
+            {
+                if (app.Windows.Count == 0) return false;
+
+                window = app.ActiveWindow;
+                selection = window.Selection;
+                return selection.Type == PowerPoint.PpSelectionType.ppSelectionNone ||
+                       selection.Type == PowerPoint.PpSelectionType.ppSelectionSlides;
+            }
+            catch (COMException)
+            {
+                return false;
+            }
+            finally
+            {
+                Com.Release(selection);
+                Com.Release(window);
+            }
+        }
+
+        /// <summary>
+        /// Every visible top-level shape on the slide in view, for a verb that works on the whole slide
+        /// when nothing is selected. Hidden shapes are left out: moving what nobody can see is never what
+        /// was meant. A group comes back as one shape, as it does when selected.
+        /// </summary>
+        public static SelectionSnapshot? TryReadSlide(PowerPoint.Application app, double margin, out string? problem)
+        {
+            problem = null;
+
+            PowerPoint.DocumentWindow? window = null;
+            PowerPoint.Slide? slide = null;
+            PowerPoint.Presentation? presentation = null;
+            PowerPoint.Shapes? all = null;
+
+            try
+            {
+                if (app.Windows.Count == 0)
+                {
+                    problem = "Open a presentation first.";
+                    return null;
+                }
+
+                window = app.ActiveWindow;
+                slide = window.View.Slide as PowerPoint.Slide;
+                if (slide == null)
+                {
+                    problem = "AlignPro works on slides, not on the master or notes pages.";
+                    return null;
+                }
+
+                presentation = slide.Parent as PowerPoint.Presentation;
+                if (presentation == null)
+                {
+                    problem = "Could not read the presentation's slide size.";
+                    return null;
+                }
+
+                var slideId = slide.SlideID;
+                var metrics = new SlideMetrics(
+                    presentation.PageSetup.SlideWidth,
+                    presentation.PageSetup.SlideHeight,
+                    margin,
+                    ReadPlaceholderBounds(slide));
+
+                all = slide.Shapes;
+                var shapes = new List<ShapeSnapshot>(all.Count);
+                for (var i = 1; i <= all.Count; i++)
+                {
+                    PowerPoint.Shape? shape = null;
+                    try
+                    {
+                        shape = all[i];
+                        if (shape.Visible == Office.MsoTriState.msoFalse) continue;
+                        shapes.Add(ReadShape(shape, slideId));
+                    }
+                    finally
+                    {
+                        Com.Release(shape);
+                    }
+                }
+
+                return new SelectionSnapshot(shapes, metrics, slideId, anchor: null);
+            }
+            finally
+            {
+                Com.Release(all);
+                Com.Release(presentation);
+                Com.Release(slide);
+                Com.Release(window);
+            }
+        }
+
+        /// <summary>
         /// Reads the current selection. Returns null and sets <paramref name="problem"/> when there is
         /// nothing usable selected - that is an ordinary outcome, not an error.
         /// </summary>

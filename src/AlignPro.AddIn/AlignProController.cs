@@ -281,15 +281,32 @@ namespace AlignPro.AddIn
 
         /// <summary>
         /// Lines up what is nearly lined up and evens out what is nearly even, deciding for itself
-        /// what to move. Always reports, since a 2pt fix is invisible.
+        /// what to move. With nothing selected it works on every visible shape on the slide. Always
+        /// reports, since a 2pt fix is invisible - and says when it looked at the whole slide, so a
+        /// click with nothing selected by accident is obvious, and one Ctrl+Z away.
         /// </summary>
         public CommandResult RunTidy(string label)
         {
-            var selection = SelectionReader.TryRead(_app, Margin, out var problem);
+            var wholeSlide = SelectionReader.NothingSelected(_app);
+            var selection = wholeSlide
+                ? SelectionReader.TryReadSlide(_app, Margin, out var problem)
+                : SelectionReader.TryRead(_app, Margin, out problem);
             if (selection == null) return CommandResult.Failed(problem ?? "Nothing to tidy.");
+
+            if (wholeSlide && selection.Shapes.Count(s => !s.IsConnector) < 2)
+            {
+                return CommandResult.Note("Nothing was selected, and this slide has fewer than two shapes to tidy.");
+            }
 
             var request = new TidyRequest(TidyTolerance, Bounds);
             var solved = GroupSpace.SolveTidy(request, selection.Shapes, selection.Slide.GroupBounds, selection.GroupRotation);
+
+            if (wholeSlide && solved.Succeeded)
+            {
+                var said = new List<string> { "Nothing was selected, so Tidy looked at the whole slide." };
+                said.AddRange(solved.Diagnostics);
+                solved = SolveResult.OkWithNotice(solved.Changes, said.ToArray());
+            }
 
             // Nothing moved is an answer, not a failure, and Tidy's own words say why.
             if (solved.Succeeded && !solved.EffectiveChanges.Any())

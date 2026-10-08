@@ -861,6 +861,51 @@ try {
 finally { Close-Fixture -Fixture $f }
 
 # =================================================================================================
+# Case 15: Tidy with nothing selected works on the whole slide
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    [void]$api.SetTidyTolerance('')
+    [void](Add-Rect $f 'A' 100 100 60 40)
+    [void](Add-Rect $f 'B' 102 200 80 40)
+    # Hidden at x=101: measured, it would be the median the others snap to.
+    $hidden = Add-Rect $f 'Hidden' 101 300 50 40
+    $hidden.Visible = $msoFalse
+    $ppt.ActiveWindow.Selection.Unselect()
+
+    $said = $api.RunTidy()
+    $ok = (Test-Near $f.Slide.Shapes.Item('B').Left 100 0.01) -and (Test-Near $f.Slide.Shapes.Item('Hidden').Left 101 0.01)
+    Add-Result 'Nothing selected: Tidy works on the slide, hidden shapes left out' $ok `
+        ("B {0:F2}, hidden {1:F2}" -f $f.Slide.Shapes.Item('B').Left, $f.Slide.Shapes.Item('Hidden').Left)
+    Add-Result 'Nothing selected: Tidy says it looked at the whole slide' ($said -like 'Nothing was selected, so Tidy looked at the whole slide.*Tidied*') ("said: " + $said)
+}
+finally { Close-Fixture -Fixture $f }
+
+# A real title placeholder holds still, and a shape 2pt off its left edge snaps to it.
+$pres = $ppt.Presentations.Add()
+try {
+    $slide = $pres.Slides.Add(1, 11)   # ppLayoutTitleOnly
+    $title = $slide.Shapes.Placeholders.Item(1)
+    $titleLeft = $title.Left
+    $box = $slide.Shapes.AddShape($msoShapeRectangle, $titleLeft + 2, 300, 120, 60)
+    $ppt.ActiveWindow.Selection.Unselect()
+    $said = $api.RunTidy()
+    $ok = (Test-Near $box.Left $titleLeft 0.01) -and (Test-Near $slide.Shapes.Placeholders.Item(1).Left $titleLeft 0.01)
+    Add-Result 'Whole slide: a shape snaps to the title placeholder, which holds still' $ok `
+        ("box {0:F2}, title {1:F2} (was {2:F2}); said: {3}" -f $box.Left, $slide.Shapes.Placeholders.Item(1).Left, $titleLeft, $said)
+}
+finally { $pres.Saved = $msoTrue; $pres.Close() }
+
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'Only' 100 100 60 40)
+    $ppt.ActiveWindow.Selection.Unselect()
+    $said = $api.RunTidy()
+    Add-Result 'Whole slide with one shape says there is nothing to tidy' ($said -like '*fewer than two*') ("said: " + $said)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
 Write-Host ''
 $script:results | Format-Table -AutoSize
 $failed = @($script:results | Where-Object { $_.Result -eq 'FAIL' }).Count

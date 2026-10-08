@@ -557,6 +557,22 @@ Send-NativeUndo -Window $window
 Add-Result 'Ctrl+Z undoes the whole tidy' ([Math]::Abs($tidySlide.Shapes.Item('Cell2').Left - $cell2Before) -le $tolerance) `
     ("Cell2 left {0:F2}, was {1:F2}" -f $tidySlide.Shapes.Item('Cell2').Left, $cell2Before)
 
+# Slide 20 again, nothing selected: Tidy works on the whole slide and says so.
+$ppt.ActiveWindow.View.GotoSlide(20)
+Start-Sleep -Milliseconds 250
+$ppt.ActiveWindow.Selection.Unselect()
+Start-Sleep -Milliseconds 250
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Tidy'
+$dialog = Get-BlockingDialog -Window $window
+$columnsAligned = 0
+for ($c = 0; $c -lt 3; $c++) {
+    $lefts = @(); for ($r = 0; $r -lt 3; $r++) { $lefts += [Math]::Round((Get-TidyShape "Cell$($r * 3 + $c + 1)").Left, 2) }
+    if (@($lefts | Sort-Object -Unique).Count -eq 1) { $columnsAligned++ }
+}
+Add-Result 'Clicking Tidy with nothing selected tidies the slide' (($dialog -like '*whole slide*') -and ($columnsAligned -eq 3)) `
+    ("{0}/3 columns; dialog: {1}" -f $columnsAligned, $dialog)
+Send-NativeUndo -Window $window
+
 # =================================================================================================
 Write-Host ''
 $results | Format-Table -AutoSize

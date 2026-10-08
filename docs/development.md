@@ -164,8 +164,8 @@ Three layers, because each catches what the others cannot.
 
 ```powershell
 dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 253, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 61, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 31, real ribbon clicks
+.\tools\Test-AlignProEndToEnd.ps1                                          # 65, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 32, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over
@@ -311,7 +311,7 @@ Three design decisions that came out of measurement rather than preference:
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Done** — `Application.StartNewUndoEntry` gives each operation its own native undo entry; verified by real ribbon clicks plus Ctrl+Z |
-| 3c. Automated end-to-end tests | **Done** — 253 unit tests, 61 COM checks, and 31 real ribbon clicks |
+| 3c. Automated end-to-end tests | **Done** — 253 unit tests, 65 COM checks, and 32 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
 | 6. Grow or shrink by the match-size margin | **Done** — Direction dropdown; a negative margin is refused |
@@ -327,7 +327,7 @@ Three design decisions that came out of measurement rather than preference:
 | 11. Tidy: snap near-alignments | **Done** — `TidySolver`, 20 unit tests; not yet on the ribbon (13). See [Tidy](#tidy) |
 | 12. Tidy: even out near-even spacing | **Done** — rows and columns, spaced as whole aligned units; 7 more unit tests |
 | 13. Tidy on the ribbon | **Done** — Tidy button and Tolerance box, connectors left out, rotated groups via `GroupSpace`; COM checks, ribbon clicks, sample slide 20 |
-| 14. Tidy the whole slide | **Planned** — only after 13 has had real use |
+| 14. Tidy the whole slide | **Done** — Tidy with nothing selected; COM checks, a ribbon click |
 
 ### Next features
 
@@ -561,6 +561,14 @@ dialog" check before then was passing without looking.
 already walks `slide.Shapes` for z-order, and would read snapshots in the same walk. This is where a
 false positive costs most, because the user did not choose the shapes, so it waits until 13 has had
 real use. It may need a lower default tolerance.
+
+Built 2026-10-08, with these decisions taken with the user: the trigger is Tidy with nothing selected
+(nothing at all, or only slides in the thumbnail pane), not a separate button; it uses the same
+Tolerance box, not a lower one; it applies and then reports rather than asking first; and every kind
+of shape takes part - shapes, pictures, text boxes, tables, charts, SmartArt - with placeholders
+holding still, and connectors and **hidden shapes** left out. `SelectionReader.TryReadSlide` reads
+the slide; the report opens with "Nothing was selected, so Tidy looked at the whole slide", so an
+accidental click is obvious and one Ctrl+Z away.
 
 **Tests to write first** (`TidyTests.cs`):
 - One shape 2pt off a left edge snaps to the other two, and the two do not move.
