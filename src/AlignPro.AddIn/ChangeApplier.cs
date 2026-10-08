@@ -364,6 +364,11 @@ namespace AlignPro.AddIn
         /// Writes only the properties that actually differ. Size goes first: setting Width or Height
         /// holds the top-left corner, so position is applied afterwards and wins either way.
         /// </summary>
+        /// <remarks>
+        /// A shape with a locked aspect ratio - every picture, by default - rescales its height when its
+        /// width is set, and the other way round, so writing one would undo the other. The lock is
+        /// lifted for the size writes and put back, and only when a size actually changes.
+        /// </remarks>
         internal static void ApplyFrame(PowerPoint.Shape shape, RectD frame)
         {
             const float tolerance = 1e-4f;
@@ -373,10 +378,38 @@ namespace AlignPro.AddIn
             var left = (float)frame.X;
             var top = (float)frame.Y;
 
-            if (Differs(shape.Width, width, tolerance)) shape.Width = width;
-            if (Differs(shape.Height, height, tolerance)) shape.Height = height;
+            var resizeWidth = Differs(shape.Width, width, tolerance);
+            var resizeHeight = Differs(shape.Height, height, tolerance);
+            if (resizeWidth || resizeHeight)
+            {
+                var locked = IsAspectLocked(shape);
+                if (locked) shape.LockAspectRatio = Office.MsoTriState.msoFalse;
+                try
+                {
+                    if (resizeWidth) shape.Width = width;
+                    if (resizeHeight) shape.Height = height;
+                }
+                finally
+                {
+                    if (locked) shape.LockAspectRatio = Office.MsoTriState.msoTrue;
+                }
+            }
+
             if (Differs(shape.Left, left, tolerance)) shape.Left = left;
             if (Differs(shape.Top, top, tolerance)) shape.Top = top;
+        }
+
+        /// <summary>Whether the aspect ratio is locked; false for shapes that have no such setting.</summary>
+        private static bool IsAspectLocked(PowerPoint.Shape shape)
+        {
+            try
+            {
+                return shape.LockAspectRatio == Office.MsoTriState.msoTrue;
+            }
+            catch (COMException)
+            {
+                return false;
+            }
         }
 
         private static bool Differs(float current, float target, float tolerance) =>

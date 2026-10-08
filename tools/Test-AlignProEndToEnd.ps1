@@ -906,6 +906,72 @@ try {
 finally { Close-Fixture -Fixture $f }
 
 # =================================================================================================
+# Case 16: three bugs the code review found
+# =================================================================================================
+# A locked aspect ratio - every picture's default - must not undo half of a resize.
+$f = New-EmptyFixture
+try {
+    [void]$api.SetReference('SelectionBounds')
+    [void]$api.SetSizeMarginMode('None')
+    $locked = Add-Rect $f 'Locked' 100 100 100 50
+    $locked.LockAspectRatio = $msoTrue
+    [void](Add-Rect $f 'Anchor' 400 100 200 80)
+    Select-InOrder -Fixture $f -Names @('Locked', 'Anchor')
+    $said = $api.RunVerb('MatchBoth')
+    $l = $f.Slide.Shapes.Item('Locked')
+    Add-Result 'Match size on an aspect-locked shape takes both sizes' ((Test-Near $l.Width 200 0.01) -and (Test-Near $l.Height 80 0.01)) `
+        ("{0:F1}x{1:F1}, expected 200x80 {2}" -f $l.Width, $l.Height, $said)
+    Add-Result 'Match size leaves the aspect lock as it was' ($l.LockAspectRatio -eq $msoTrue) ("LockAspectRatio={0}" -f $l.LockAspectRatio)
+
+    $ppt.CommandBars.ExecuteMso('Undo')
+    [void](Add-Rect $f 'Wide' 400 300 260 30)
+    Select-InOrder -Fixture $f -Names @('Locked', 'Wide')
+    $said = $api.RunVerb('MatchWidth')
+    $l = $f.Slide.Shapes.Item('Locked')
+    Add-Result 'Match width on an aspect-locked shape keeps its height' ((Test-Near $l.Width 260 0.01) -and (Test-Near $l.Height 50 0.01)) `
+        ("{0:F1}x{1:F1}, expected 260x50 {2}" -f $l.Width, $l.Height, $said)
+}
+finally { Close-Fixture -Fixture $f }
+
+# An inner group at the very back of the outer one leaves no gap between the leaves' z-positions.
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'P1' 100 100 50 30)
+    [void](Add-Rect $f 'P2' 200 100 50 30)
+    $inner = $f.Slide.Shapes.Range(@('P1', 'P2')).Group()
+    $inner.Name = 'InnerBack'
+    [void](Add-Rect $f 'P3' 300 100 50 30)
+    $outer = $f.Slide.Shapes.Range(@('InnerBack', 'P3')).Group()
+    $outer.GroupItems.Item('P1').Select($msoTrue)
+    $outer.GroupItems.Item('P3').Select($msoFalse)
+    $refusal = $api.RunOrder('StackFirstOnTop')
+    Add-Result 'Order refuses a group whose inner group is at the back' ($refusal -like '*another group inside it*') ("said: " + $refusal)
+}
+finally { Close-Fixture -Fixture $f }
+
+# Slide Sorter: "slides selected" there is not a slide in view, and must be said plainly.
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'A' 100 100 50 30)
+    [void](Add-Rect $f 'B' 102 200 50 30)
+    $ppt.ActiveWindow.ViewType = 7   # ppViewSlideSorter
+    Start-Sleep -Milliseconds 500
+    $said = try { $api.RunTidy() } catch { 'THREW: ' + $_.Exception.Message }
+    $untouched = Test-Near $f.Slide.Shapes.Item('B').Left 102 0.01
+    Add-Result 'Tidy in Slide Sorter refuses, rather than tidying a slide out of sight' (($said -like '*Normal view*') -and $untouched) ("said: " + $said)
+    $ppt.ActiveWindow.ViewType = 9   # ppViewNormal
+    Start-Sleep -Milliseconds 500
+
+    # Normal view with the thumbnail pane in front is still a slide in view, and counts.
+    $ppt.ActiveWindow.Panes.Item(1).Activate()
+    Start-Sleep -Milliseconds 300
+    $said = try { $api.RunTidy() } catch { 'THREW: ' + $_.Exception.Message }
+    Add-Result 'Tidy with the thumbnail pane in front tidies the slide' ((Test-Near $f.Slide.Shapes.Item('B').Left 100 0.01) -and ($said -like '*whole slide*')) `
+        ("view type {0}; said: {1}" -f $ppt.ActiveWindow.ViewType, $said)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
 Write-Host ''
 $script:results | Format-Table -AutoSize
 $failed = @($script:results | Where-Object { $_.Result -eq 'FAIL' }).Count

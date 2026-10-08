@@ -137,7 +137,28 @@ namespace AlignPro.AddIn
                 }
 
                 window = app.ActiveWindow;
-                slide = window.View.Slide as PowerPoint.Slide;
+
+                // The whole slide only when it is the one being edited - in Normal view, whichever of its
+                // panes has the focus (the thumbnail pane reports as its own view type). In Slide Sorter
+                // there is a "current" slide too, but tidying one nobody is looking at is exactly the
+                // surprise a whole-slide verb must not spring.
+                var view = window.ViewType;
+                if (view != PowerPoint.PpViewType.ppViewNormal &&
+                    view != PowerPoint.PpViewType.ppViewSlide &&
+                    view != PowerPoint.PpViewType.ppViewThumbnails)
+                {
+                    problem = "Nothing is selected, and Tidy only works on a whole slide in Normal view. Open the slide, or select the shapes to tidy.";
+                    return null;
+                }
+
+                try
+                {
+                    slide = window.View.Slide as PowerPoint.Slide;
+                }
+                catch (COMException)
+                {
+                    slide = null;
+                }
                 if (slide == null)
                 {
                     problem = "AlignPro works on slides, not on the master or notes pages.";
@@ -379,8 +400,10 @@ namespace AlignPro.AddIn
         /// A nested group is flattened in <c>GroupItems</c> and every leaf reports the outer group as
         /// its parent, yet bringing a leaf to the front only restacks it within its inner group (probe
         /// 19). Nothing says which inner group a leaf is in, so no ordering across them can be trusted.
-        /// The one trace an inner group leaves is a z-position of its own that no leaf holds, so a gap
-        /// in the leaves' positions means the group holds another, and the selection is refused.
+        /// The one trace an inner group leaves is a z-position of its own that no leaf holds. A group's
+        /// leaves otherwise take the positions straight after the group's own, one each, so anything
+        /// else - a gap between them, or a first leaf that is not next to the group, where an inner
+        /// group sits at the very back - means the group holds another, and the selection is refused.
         /// </para>
         /// </remarks>
         private static IReadOnlyList<ShapeKey>? ReadGroupOrder(PowerPoint.Shape group, int slideId, out string? problem)
@@ -406,7 +429,8 @@ namespace AlignPro.AddIn
                 }
 
                 stack.Sort((a, b) => a.Z.CompareTo(b.Z));
-                if (stack.Count > 0 && stack[stack.Count - 1].Z - stack[0].Z + 1 != stack.Count)
+                var first = group.ZOrderPosition + 1;
+                if (stack.Count > 0 && (stack[0].Z != first || stack[stack.Count - 1].Z - first + 1 != stack.Count))
                 {
                     problem = "This group has another group inside it, and PowerPoint only restacks a shape among the shapes of its own inner group. AlignPro cannot reorder inside it yet - ungroup the inner group first.";
                     return null;

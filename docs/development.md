@@ -164,7 +164,7 @@ Three layers, because each catches what the others cannot.
 
 ```powershell
 dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 253, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 65, PowerPoint via COM
+.\tools\Test-AlignProEndToEnd.ps1                                          # 71, PowerPoint via COM
 .\tools\Test-RibbonClicks.ps1                                              # 32, real ribbon clicks
 ```
 
@@ -311,7 +311,7 @@ Three design decisions that came out of measurement rather than preference:
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Done** — `Application.StartNewUndoEntry` gives each operation its own native undo entry; verified by real ribbon clicks plus Ctrl+Z |
-| 3c. Automated end-to-end tests | **Done** — 253 unit tests, 65 COM checks, and 32 real ribbon clicks |
+| 3c. Automated end-to-end tests | **Done** — 253 unit tests, 71 COM checks, and 32 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
 | 6. Grow or shrink by the match-size margin | **Done** — Direction dropdown; a negative margin is refused |

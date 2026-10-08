@@ -538,3 +538,19 @@ reads the loose shapes.
 
   There is no `ExecuteMso` name for PowerPoint's own duplicate command (`DuplicateSelection`,
   `Duplicate` and `ObjectDuplicate` are all refused); probe 22 presses Ctrl+D instead.
+
+## Found by review, confirmed in PowerPoint
+
+A code review on 2026-10-08 found these by reading; each was then reproduced by an end-to-end check
+that failed before the fix and passes after.
+
+- **A locked aspect ratio undoes half a resize.** With `LockAspectRatio` on - every picture's
+  default - setting `Width` rescales `Height` and the other way round. Match size against a
+  differently shaped anchor came out 160x80 instead of 200x80, and Match width did nothing at all
+  (100x50 stayed 100x50 instead of 260x50). `ChangeApplier.ApplyFrame` lifts the lock for the size
+  writes and puts it back.
+- **An inner group at the very back of its outer group leaves no gap** in the leaves' z-positions
+  (the inner group's own slot is before all of them), so probe 19's refusal missed it and Order went
+  ahead wrongly. The leaves must also start directly after the outer group's own position.
+- **Slide Sorter has a current slide.** Tidy with slides selected there tidied it out of sight; the
+  review had predicted a crash instead. Whole-slide Tidy now works only in Normal view.

@@ -371,7 +371,7 @@ Three layers, because each catches what the others cannot:
 
 ```powershell
 dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 253, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 65, PowerPoint via COM
+.\tools\Test-AlignProEndToEnd.ps1                                          # 71, PowerPoint via COM
 .\tools\Test-RibbonClicks.ps1                                              # 32, real ribbon clicks
 ```
 
