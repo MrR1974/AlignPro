@@ -804,6 +804,63 @@ try {
 finally { Close-Fixture -Fixture $f }
 
 # =================================================================================================
+# Case 14: Tidy - near-alignments snap, connectors are left out, and it always says what it did
+# =================================================================================================
+$f = New-EmptyFixture
+try {
+    [void]$api.SetBoundsModel('ShapeFrame')
+    [void]$api.SetTidyTolerance('')
+    [void](Add-Rect $f 'A' 100 100 60 40)
+    [void](Add-Rect $f 'B' 102 200 80 40)
+    # A vertical connector at x=101: measured, it would be the median the others snap to.
+    $link = $f.Slide.Shapes.AddConnector(1, 101, 300, 101, 400)
+    $link.Name = 'Link'
+    Select-InOrder -Fixture $f -Names @('A', 'B', 'Link')
+
+    $said = $api.RunTidy()
+    $a = $f.Slide.Shapes.Item('A'); $b = $f.Slide.Shapes.Item('B'); $l = $f.Slide.Shapes.Item('Link')
+    $ok = (Test-Near $a.Left 100 0.01) -and (Test-Near $b.Left 100 0.01) -and (Test-Near $l.Left 101 0.01)
+    Add-Result 'Tidy snaps a near-alignment, leaving the connector out' $ok `
+        ("A {0:F2}, B {1:F2}, connector {2:F2}" -f $a.Left, $b.Left, $l.Left)
+    Add-Result 'Tidy says what it did' (($said -like 'Tidied*') -and ($said -like '*connector*')) ("said: " + $said)
+
+    Select-InOrder -Fixture $f -Names @('A', 'B')
+    $said = $api.RunTidy()
+    Add-Result 'Tidy again finds nothing to do, and says so' ($said -like 'Nothing to tidy*') ("said: " + $said)
+
+    [void]$api.SetTidyTolerance('25')
+    $said = $api.RunTidy()
+    Add-Result 'A tolerance out of range is refused' ($said -like '*tolerance*') ("said: " + $said)
+    [void]$api.SetTidyTolerance('')
+}
+finally { Close-Fixture -Fixture $f }
+
+# Tidy inside a rotated group lines shapes up along the group's own edge.
+$f = New-EmptyFixture
+try {
+    [void](Add-Rect $f 'T1' 100 100 60 40)
+    [void](Add-Rect $f 'T2' 100 200 80 40)
+    [void](Add-Rect $f 'T3' 102 300 50 40)
+    $grp = $f.Slide.Shapes.Range(@('T1', 'T2', 'T3')).Group()
+    $grp.Rotation = 30
+    $theta = 30 * [Math]::PI / 180
+    function Get-AlongLeft { param($Shape)
+        (($Shape.Left + $Shape.Width / 2) * [Math]::Cos($theta) + ($Shape.Top + $Shape.Height / 2) * [Math]::Sin($theta)) - $Shape.Width / 2
+    }
+    $first = $true
+    foreach ($n in 'T1', 'T2', 'T3') { $grp.GroupItems.Item($n).Select($(if ($first) { $msoTrue } else { $msoFalse })); $first = $false }
+    $said = $api.RunTidy()
+    $lefts = @('T1', 'T2', 'T3') | ForEach-Object { [Math]::Round((Get-AlongLeft $grp.GroupItems.Item($_)), 2) }
+    Add-Result 'Tidy inside a rotated group follows its edge' (@($lefts | Sort-Object -Unique).Count -eq 1) `
+        ("along-group lefts {0}; said: {1}" -f ($lefts -join ', '), $said)
+
+    # PowerPoint reads a rotated group's shapes back a hair off; that must not count as untidy.
+    $said = $api.RunTidy()
+    Add-Result 'Tidy again inside the rotated group finds nothing to do' ($said -like 'Nothing to tidy*') ("said: " + $said)
+}
+finally { Close-Fixture -Fixture $f }
+
+# =================================================================================================
 Write-Host ''
 $script:results | Format-Table -AutoSize
 $failed = @($script:results | Where-Object { $_.Result -eq 'FAIL' }).Count

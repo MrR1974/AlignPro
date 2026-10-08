@@ -107,6 +107,9 @@ namespace AlignPro.AddIn
         /// </summary>
         public bool RotateShapes { get; set; } = true;
 
+        /// <summary>How close, in points, shapes must be for Tidy to treat them as meant to line up.</summary>
+        public double TidyTolerance { get; set; } = TidyRequest.DefaultTolerance;
+
         public CommandResult Run(AlignVerb verb, string label)
         {
             var selection = SelectionReader.TryRead(_app, Margin, out var problem);
@@ -274,6 +277,27 @@ namespace AlignPro.AddIn
             return solved.Notable || outcome.Created.Count < expected
                 ? CommandResult.Note(message ?? "Part of the selection was skipped.")
                 : CommandResult.Ok(message);
+        }
+
+        /// <summary>
+        /// Lines up what is nearly lined up and evens out what is nearly even, deciding for itself
+        /// what to move. Always reports, since a 2pt fix is invisible.
+        /// </summary>
+        public CommandResult RunTidy(string label)
+        {
+            var selection = SelectionReader.TryRead(_app, Margin, out var problem);
+            if (selection == null) return CommandResult.Failed(problem ?? "Nothing to tidy.");
+
+            var request = new TidyRequest(TidyTolerance, Bounds);
+            var solved = GroupSpace.SolveTidy(request, selection.Shapes, selection.Slide.GroupBounds, selection.GroupRotation);
+
+            // Nothing moved is an answer, not a failure, and Tidy's own words say why.
+            if (solved.Succeeded && !solved.EffectiveChanges.Any())
+            {
+                return CommandResult.Note(string.Join(" ", solved.Diagnostics));
+            }
+
+            return ApplySolved(label, selection, solved);
         }
 
         /// <summary>

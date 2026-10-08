@@ -123,6 +123,9 @@ namespace AlignPro.AddIn
         public void OnDuplicate(Office.IRibbonControl control) => Guard(() =>
             Report(Controller.RunDuplicate("Duplicate"), "Duplicate"));
 
+        public void OnTidy(Office.IRibbonControl control) => Guard(() =>
+            Report(Controller.RunTidy("Tidy"), "Tidy"));
+
         // -- reference and bounds ----------------------------------------------------------------
 
         private static readonly ReferenceTarget[] References =
@@ -282,6 +285,31 @@ namespace AlignPro.AddIn
             else
             {
                 Warn($"'{text}' is not a margin in points. It must be zero or more.");
+            }
+
+            Invalidate();
+        });
+
+        public string GetTidyToleranceText(Office.IRibbonControl control) =>
+            Controller.TidyTolerance.ToString("0.##", CultureInfo.CurrentCulture);
+
+        public void OnTidyToleranceChange(Office.IRibbonControl control, string text) => Guard(() =>
+        {
+            // Blank goes back to the default rather than to zero, which Tidy would refuse.
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Controller.TidyTolerance = TidyRequest.DefaultTolerance;
+            }
+            else if (TryParsePoints(text, out var value) &&
+                     value >= TidyRequest.MinTolerance && value <= TidyRequest.MaxTolerance)
+            {
+                Controller.TidyTolerance = value;
+            }
+            else
+            {
+                Warn(string.Format(CultureInfo.CurrentCulture,
+                    "'{0}' is not a tolerance Tidy can use. Enter a number of points from {1} to {2}.",
+                    text, TidyRequest.MinTolerance, TidyRequest.MaxTolerance));
             }
 
             Invalidate();

@@ -221,6 +221,14 @@ stacked within its group rather than against the slide, so AlignPro refuses rath
 **Grid** tidies a scatter into even rows and columns, keeping each shape near where it already was.
 Sizes are never changed, so it's safe on groups. Leave **Columns** blank for a near-square grid.
 
+**Tidy** fixes a slide built by eye. Edges and centres within **Tolerance (pt)** of each other — 3
+by default — snap together, and rows and columns whose spacing is nearly even are made even. It
+never invents a layout: a 6pt stagger at a 3pt tolerance reads as deliberate and is left alone, and
+an alignment you already have is never broken to make a near one. It only moves shapes, never
+resizes or turns them, and leaves connectors to follow the shapes they join. Because a 2pt fix is
+hard to see, it always says what it did. It uses **Measure** like the align buttons, so choose
+**Visual bounds** when rotated shapes are involved.
+
 ### Duplicate
 
 Makes copies of the selection, each one step on from the one before. A step is: turn by **Angle**
@@ -290,7 +298,7 @@ collapsed into a corner.
 
 ## Try it
 
-A nineteen-slide sample deck is **installed alongside the add-in**, at
+A twenty-slide sample deck is **installed alongside the add-in**, at
 `%LOCALAPPDATA%\AlignPro\AlignPro-Sample.pptx`. It is also here in the repository at
 [`sample/AlignPro-Sample.pptx`](sample/AlignPro-Sample.pptx).
 
@@ -298,7 +306,7 @@ One slide per capability, each captioned with what to try and what should happen
 to start with — align left with **Measure = Shape frame**, undo, then again with **Visual bounds**,
 and watch the rotated shape. Slides 7 to 10 cover ordering and the match-size margin, with a
 concentric-rings slide that uses both together and then Grow. Slides 15 to 17 cover Match rotation,
-Duplicate and Along curve, and slides 18 and 19 shapes inside a group, plain and rotated.
+Duplicate and Along curve, slides 18 and 19 shapes inside a group, plain and rotated, and slide 20 Tidy.
 
 ---
 ## Building from source
@@ -357,9 +365,9 @@ behaviours are not what the documentation implies.
 Three layers, because each catches what the others cannot:
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 223, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 55, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 28, real ribbon clicks
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 253, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 61, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 31, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over

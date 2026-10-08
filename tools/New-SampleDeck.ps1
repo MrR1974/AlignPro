@@ -447,6 +447,35 @@ $hint.TextFrame2.TextRange.Text = 'Inside a rotated group, left, top, centre and
 $hint.TextFrame2.TextRange.Font.Size = 12
 $hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
 
+# =================================================================================================
+# 20. Tidy
+# =================================================================================================
+$s = Add-Slide -Title 'Tidy: fix a slide built by eye' `
+               -Try  'Drag a box round all the coloured shapes to select them, then Arrange > Tidy. Undo, then try Tolerance (pt) = 1.'
+# A 3x3 grid, each cell nudged by up to a point - fixed nudges, so the slide is the same every time.
+$nudge = @(0.4, -0.9, 0.7, -0.3, 1.0, -0.6, 0.2, -1.0, 0.8, -0.5, 0.9, -0.2, 0.6, -0.8, 0.1, -0.4, 0.5, -0.7)
+for ($i = 0; $i -lt 9; $i++) {
+    Add-Box -Slide $s -Name ("Cell{0}" -f ($i + 1)) -X (80 + ($i % 3) * 90 + $nudge[$i * 2]) -Y (150 + [Math]::Floor($i / 3) * 80 + $nudge[$i * 2 + 1]) `
+            -W 50 -H 40 -Colour $blue -Label ($i + 1) | Out-Null
+}
+$link = $s.Shapes.AddConnector(1, 0, 0, 10, 10)
+$link.Name = 'Link'
+$link.ConnectorFormat.BeginConnect($s.Shapes.Item('Cell1'), 4)
+$link.ConnectorFormat.EndConnect($s.Shapes.Item('Cell2'), 2)
+$link.Line.ForeColor.RGB = $grey
+# A row whose gaps are 18, 20 and 21pt, and whose tops wander by under a point.
+$lefts = @(480, 548, 618, 689); $tops = @(160, 160.8, 159.5, 160.4)
+for ($i = 0; $i -lt 4; $i++) {
+    Add-Box -Slide $s -Name ("Step{0}" -f ($i + 1)) -X $lefts[$i] -Y $tops[$i] -W 50 -H 40 -Colour $green -Label ($i + 1) | Out-Null
+}
+# A deliberate 6pt stagger: at the default 3pt it is intent, not a slip, and must stay.
+Add-Box -Slide $s -Name 'StagA' -X 520 -Y 300 -W 160 -H 40 -Colour $orange -Label 'Stagger' | Out-Null
+Add-Box -Slide $s -Name 'StagB' -X 526 -Y 360 -W 160 -H 40 -Colour $orange -Label '6pt in' | Out-Null
+$hint = $s.Shapes.AddTextbox($msoTextOrientationHorizontal, 40, 450, 880, 60)
+$hint.TextFrame2.TextRange.Text = 'Tidy lines up edges and centres that are within the Tolerance of each other, and evens out rows and columns that are nearly evenly spaced. It only moves shapes, and it says what it did. The orange pair is 6pt apart, which at 3pt reads as deliberate, so it stays; the connector is left to follow its boxes.'
+$hint.TextFrame2.TextRange.Font.Size = 12
+$hint.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = $grey
+
 # --- save, close, reopen --------------------------------------------------------------------------
 if (Test-Path $Path) { Remove-Item $Path -Force }
 $pres.SaveAs($Path, $ppSaveAsOpenXMLPresentation)

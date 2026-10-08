@@ -56,7 +56,7 @@ namespace AlignPro.AddIn
             CultureInfo.InvariantCulture,
             "reference={0} bounds={1} distributeMode={2} exactSpacing={3} margin={4} gridColumns={5} " +
             "sizeMargin={6} sizeMarginMode={7} sizeDirection={8} duplicate=({9},{10},{11}deg,x{12},{13}) " +
-            "rotateShapes={14}",
+            "rotateShapes={14} tidyTolerance={15}",
             Controller.Reference,
             Controller.Bounds,
             Controller.DistributeMode,
@@ -71,7 +71,8 @@ namespace AlignPro.AddIn
             Controller.DuplicateAngle.ToString(CultureInfo.InvariantCulture),
             Controller.DuplicateCopies.ToString(CultureInfo.InvariantCulture),
             Controller.DuplicatePivot,
-            Controller.RotateShapes);
+            Controller.RotateShapes,
+            Controller.TidyTolerance.ToString(CultureInfo.InvariantCulture));
 
         /// <summary>
         /// Runs a verb against the current selection. Verb names match <see cref="AlignVerb"/>, e.g.
@@ -218,6 +219,28 @@ namespace AlignPro.AddIn
         /// </summary>
         /// <returns>Empty on success, otherwise why nothing happened or what was skipped.</returns>
         public string RunDuplicate() => Controller.RunDuplicate("Duplicate").Message ?? string.Empty;
+
+        /// <summary>Tidies the current selection, as the ribbon's Tidy button does.</summary>
+        /// <returns>What Tidy did, or why it did nothing - Tidy always says.</returns>
+        public string RunTidy() => Controller.RunTidy("Tidy").Message ?? string.Empty;
+
+        /// <summary>Sets Tidy's tolerance in points. Blank restores the default.</summary>
+        public string SetTidyTolerance(string points)
+        {
+            if (string.IsNullOrWhiteSpace(points))
+            {
+                Controller.TidyTolerance = TidyRequest.DefaultTolerance;
+                return string.Empty;
+            }
+
+            if (!double.TryParse(points, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+            {
+                return "'" + points + "' is not a number.";
+            }
+
+            Controller.TidyTolerance = value;
+            return string.Empty;
+        }
 
         /// <summary>
         /// Places the selection along the curve selected last, as the ribbon's Along curve button does.

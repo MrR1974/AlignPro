@@ -467,6 +467,7 @@ namespace AlignPro.AddIn
 
             var flipH = SafeFlip(() => shape.HorizontalFlip);
             var flipV = SafeFlip(() => shape.VerticalFlip);
+            var isConnector = SafeFlip(() => shape.Connector);
 
             return new ShapeSnapshot(
                 new ShapeKey(slideId, id),
@@ -478,7 +479,8 @@ namespace AlignPro.AddIn
                 ReadTextBounds(shape),
                 isGroup: type == MsoGroup,
                 isPlaceholder: type == MsoPlaceholder,
-                name: name);
+                name: name,
+                isConnector: isConnector);
         }
 
         /// <summary>
@@ -573,6 +575,10 @@ namespace AlignPro.AddIn
             }
         }
 
+        /// <summary>
+        /// Reads a tri-state that some shape types do not have - flips on a line, the connector flag
+        /// on a few others - as false rather than failing over it.
+        /// </summary>
         private static bool SafeFlip(Func<Office.MsoTriState> read)
         {
             try

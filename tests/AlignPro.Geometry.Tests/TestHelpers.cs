@@ -15,7 +15,9 @@ internal static class Make
         RectD? textBounds = null,
         bool isGroup = false,
         bool flipH = false,
-        bool flipV = false) =>
+        bool flipV = false,
+        bool isPlaceholder = false,
+        bool isConnector = false) =>
         new(
             new ShapeKey(SlideId, id),
             new RectD(x, y, w, h),
@@ -24,8 +26,9 @@ internal static class Make
             flipV,
             textBounds,
             isGroup,
-            isPlaceholder: false,
-            name: $"S{id}");
+            isPlaceholder,
+            name: $"S{id}",
+            isConnector);
 
     public static ShapeKey Key(int id) => new(SlideId, id);
 

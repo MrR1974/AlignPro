@@ -75,7 +75,7 @@ namespace AlignPro.Geometry
         /// Resolves each shape's rectangle in the requested bounds space, once, up front. Text bounds
         /// fall back to the frame for shapes that hold no text, which is noted rather than silent.
         /// </summary>
-        private static Dictionary<ShapeKey, RectD> BuildBoundsLookup(
+        internal static Dictionary<ShapeKey, RectD> BuildBoundsLookup(
             BoundsModel model, IReadOnlyList<ShapeSnapshot> shapes, List<string> diagnostics)
         {
             var lookup = new Dictionary<ShapeKey, RectD>(shapes.Count);

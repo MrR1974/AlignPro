@@ -186,6 +186,14 @@
                    screentip="Leave blank for a near-square grid" />
           <button id="btnGrid" label="Grid" getImage="GetButtonImage" onAction="OnGrid"
                   screentip="Arrange the selection into an even grid, leaving sizes alone" />
+          <separator id="sepTidy" />
+          <editBox id="ebTidyTolerance" label="Tolerance (pt)" sizeString="0000"
+                   getText="GetTidyToleranceText" onChange="OnTidyToleranceChange"
+                   screentip="How close shapes must be for Tidy to line them up"
+                   supertip="Edges, centres and spacings within this many points of each other are treated as meant to match. From 0.5 to 20; blank goes back to 3." />
+          <button id="btnTidy" label="Tidy" getImage="GetButtonImage" onAction="OnTidy"
+                  screentip="Line up what is nearly lined up, and even out what is nearly even"
+                  supertip="Fixes a slide built by eye: edges and centres within the tolerance snap together, and rows and columns with nearly even spacing are made even. Only moves shapes, never resizes or turns them, and leaves connectors alone. Uses Measure, so choose Visual bounds when shapes are rotated." />
         </group>
 
         <!--

@@ -239,4 +239,35 @@ public class GroupSpaceTests
         Assert.True(result.Notable);
         Assert.Contains(result.Diagnostics, d => d.Contains("off the slide", StringComparison.OrdinalIgnoreCase));
     }
+
+    // -- Tidy ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Tidy_SnapsAlongTheGroupsAxis()
+    {
+        // Nearly left-aligned along the group's axes: 120, 120 and 122. On the slide those left edges
+        // are not near each other at all, so only a tidy along the group can see the alignment.
+        var result = GroupSpace.SolveTidy(
+            new TidyRequest(),
+            new[] { InGroup(1, 120, 120, 60, 40), InGroup(2, 120, 200, 80, 40), InGroup(3, 122, 280, 50, 40) },
+            Group,
+            Angle);
+
+        Assert.True(result.Succeeded, string.Join(" ", result.Diagnostics));
+        Assert.Equal(120, AlongGroup(result, 3).Left, Tolerance);
+        Assert.Equal(280, AlongGroup(result, 3).Top, Tolerance);
+        Assert.False(result.Touched(1));
+    }
+
+    [Fact]
+    public void Tidy_WithTextBounds_IsRefusedInARotatedGroup()
+    {
+        var result = GroupSpace.SolveTidy(
+            new TidyRequest(boundsModel: BoundsModel.TextBounds),
+            new[] { InGroup(1, 120, 120, 60, 40), InGroup(2, 122, 200, 80, 40) },
+            Group,
+            Angle);
+
+        Assert.False(result.Succeeded);
+    }
 }

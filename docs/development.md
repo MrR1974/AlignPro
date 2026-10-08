@@ -28,7 +28,7 @@ PowerPoint's align and distribute tools have no anchor/key-object alignment, no 
 | [`tools/Probe-ShapeGeometry.ps1`](../tools/Probe-ShapeGeometry.ps1) | Measures PowerPoint's object model; doubles as the integration harness |
 | [`tools/Probe-UndoGrouping.ps1`](../tools/Probe-UndoGrouping.ps1) | How PowerPoint groups undo entries, and what closes a group |
 | [`tools/Probe-DuplicateAndPaths.ps1`](../tools/Probe-DuplicateAndPaths.ps1) | Duplicate's undo and z-order, freeform nodes, and what an Arc's frame really is |
-| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 19-slide sample deck, one slide per capability |
+| [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1) | Builds the **saved** 20-slide sample deck, one slide per capability |
 | [`tools/New-TestDeck.ps1`](../tools/New-TestDeck.ps1) | Builds a throwaway scratch deck, never saved |
 | [`tools/Test-AlignProEndToEnd.ps1`](../tools/Test-AlignProEndToEnd.ps1) | Drives the add-in inside PowerPoint and asserts the results, no clicking |
 | [`tools/Test-RibbonClicks.ps1`](../tools/Test-RibbonClicks.ps1) | Clicks the real ribbon through UI Automation and asserts the results |
@@ -163,9 +163,9 @@ option is not selected"*. The certificate is self-signed and trusted only on the
 Three layers, because each catches what the others cannot.
 
 ```powershell
-dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 223, no PowerPoint
-.\tools\Test-AlignProEndToEnd.ps1                                          # 55, PowerPoint via COM
-.\tools\Test-RibbonClicks.ps1                                              # 28, real ribbon clicks
+dotnet test tests\AlignPro.Geometry.Tests\AlignPro.Geometry.Tests.csproj   # 253, no PowerPoint
+.\tools\Test-AlignProEndToEnd.ps1                                          # 61, PowerPoint via COM
+.\tools\Test-RibbonClicks.ps1                                              # 31, real ribbon clicks
 ```
 
 The third exists because the second is blind to a whole class of bug. It drives the add-in over
@@ -306,12 +306,12 @@ Three design decisions that came out of measurement rather than preference:
 | Phase | State |
 |---|---|
 | 0. Object-model spike | **Done** — six probes plus two follow-up undo experiments |
-| 1. Geometry engine + tests | **Done** — 161 tests at the time; 223 now, see 3c |
+| 1. Geometry engine + tests | **Done** — 161 tests at the time; 253 now, see 3c |
 | 1b. Undo journal | **Removed** after 1.3.1 — once 3b made native undo correct, `UndoManager` only added a label to the button. See [How the solver is shaped](#how-the-solver-is-shaped) |
 | 2. VSTO shell: ribbon, selection adapter, apply pipeline | **Done** — add-in loads and connects in PowerPoint |
 | 3. Verbs wired to the ribbon | **Done** — all twelve verbs, reference/measure/spacing controls, confirmed by hand against the sample deck |
 | 3b. Undo coalescing | **Done** — `Application.StartNewUndoEntry` gives each operation its own native undo entry; verified by real ribbon clicks plus Ctrl+Z |
-| 3c. Automated end-to-end tests | **Done** — 223 unit tests, 55 COM checks, and 28 real ribbon clicks |
+| 3c. Automated end-to-end tests | **Done** — 253 unit tests, 61 COM checks, and 31 real ribbon clicks |
 | 4. Keyboard hook and bindings | **Not doing** — a deliberate decision, not an omission. It was originally how Ctrl+Z would be protected, and that need went away; as pure convenience it does not justify a global keyboard hook, the riskiest component in the plan. Revisit if daily use makes the ribbon feel slow |
 | 5. Distribution | **Done** - one-line remote install, a zip for the no-terminal route, and an MSI for managed deployment. Installer and uninstaller tested end to end. A signed channel is deferred until there is demand, and is not currently available to this publisher |
 | 6. Grow or shrink by the match-size margin | **Done** — Direction dropdown; a negative margin is refused |
@@ -324,9 +324,9 @@ Three design decisions that came out of measurement rather than preference:
 | G2. Inside a rotated group, along the group's own axes | **Done** — `GroupSpace`, 13 unit tests, COM checks against a 30° group, a ribbon click, sample-deck slide 19 |
 | G3. Order inside a group | **Done** — restacks within the group; refused when the group holds another group (probe 19). COM checks, a ribbon click |
 | G4. Duplicate inside a group | **Done** — copies go inside the group ([probes 20 to 23](object-model-findings.md#groups-probes-11-to-18)); in a rotated group the step follows the group's axes. Unit tests, COM checks, a ribbon click |
-| 11. Tidy: snap near-alignments | **Planned** — see [Tidy](#tidy) |
-| 12. Tidy: even out near-even spacing | **Planned** |
-| 13. Tidy on the ribbon | **Planned** |
+| 11. Tidy: snap near-alignments | **Done** — `TidySolver`, 20 unit tests; not yet on the ribbon (13). See [Tidy](#tidy) |
+| 12. Tidy: even out near-even spacing | **Done** — rows and columns, spaced as whole aligned units; 7 more unit tests |
+| 13. Tidy on the ribbon | **Done** — Tidy button and Tolerance box, connectors left out, rotated groups via `GroupSpace`; COM checks, ribbon clicks, sample slide 20 |
 | 14. Tidy the whole slide | **Planned** — only after 13 has had real use |
 
 ### Next features
@@ -500,7 +500,18 @@ cannot disturb the other.
    partly applied.
 
 Tolerance defaults to 3pt, accepts 0.5 to 20pt, and a value outside that range is refused. The
-algorithm is a single pass. **Tidy must be idempotent:** a second run straight after the first
+algorithm is a single pass.
+
+Built 2026-10-08, with two refinements the plan did not spell out. **Locks are found separately from
+clusters:** any run of values exactly equal on a feature locks its members, even inside a wider near
+cluster - so with lefts 0, 0 and 2, the pair holds and only the third moves. **Each cluster is judged
+on positions after the clusters already accepted,** because one snap often settles several: lining
+up the left edges of equal-width shapes lines up their centres and right edges too, and those must
+read as done, not as conflicts to skip.
+
+Tidy returns ordinary translations, so inside a group it needs nothing new - except in a rotated
+group, where step 13 must route it through `GroupSpace` as align is, so it lines shapes up along the
+group's own axes. **Tidy must be idempotent:** a second run straight after the first
 finds nothing to do. That is a test, and the lock rule is what makes it hold.
 
 **12. Even out near-even spacing.** This runs after step 11, on the moved positions.
@@ -510,11 +521,14 @@ finds nothing to do. That is a test, and the lock rule is what makes it hold.
   tolerance, make it exact, holding the outer two shapes still, as Distribute already does.
   If both qualify, use the one that varies less. Leading and trailing edge are not considered, since
   they only differ from centre when sizes differ, and then the gap is what the eye reads.
-- Spacing loses to alignment. A row is skipped if evening it would move a shape that step 11 already
-  moved or locked on that axis. In a grid, the column alignments usually win and the row spacing is
-  left alone.
-  **Open question:** spacing the *column targets* evenly, rather than the shapes, would fix both
-  at once. Try it only if grids come out looking unfinished.
+- Spacing never breaks an alignment. As planned, a row was to be skipped if evening it would move a
+  shape step 11 had moved or locked - but in a grid that is every row, since every middle shape sits
+  in an aligned column, and the plan's own test asks for a jittered grid to come back evenly spaced.
+  So the open question was taken up, in its general form: evening a row moves each shape together
+  with everything exactly lined up with it along the row - its *unit*, found transitively across left,
+  centre and right - so in a grid it slides whole columns, and every column stays a column. A row is
+  skipped if that would move a placeholder, or move a unit an earlier row already moved. Built
+  2026-10-08.
 
 **13. Tidy on the ribbon.**
 - In the **Arrange** group: a **Tidy** button and a **Tolerance (pt)** box that persists like the
@@ -531,6 +545,17 @@ finds nothing to do. That is a test, and the lock rule is what makes it hold.
 - A sample-deck slide (20) should include: a jittered 3×3 grid; a near-aligned row with uneven gaps;
   a deliberate 6pt stagger that Tidy must leave alone at 3pt; a rotated shape that is flush only by
   Visual bounds; a connector; and a placeholder that others snap to.
+
+Built 2026-10-08. Slide 20 has the grid with a connector, the uneven row and the stagger; the rotated
+shape and the placeholder are left to unit tests, since the deck's blank layout has no placeholder to
+snap to. Two things surfaced on the way. **"Exact" means within 0.01pt, not `RectD.Epsilon`:** inside a
+rotated group, a layout Tidy had just made exact read back a thousandth of a point off after the
+turn into the group's axes and back, and a second Tidy then "fixed" it again; the coarser tolerance,
+far below anything visible, makes a second run find nothing. And **the ribbon harness had never seen
+a dialog**: AlignPro's message boxes sit below a direct child of PowerPoint's window, and their OK
+button reports itself as a pane with no Invoke. Tidy, which always reports, hung the run until
+`Get-BlockingDialog` searched all descendants and fell back to pressing Enter - so every "raises no
+dialog" check before then was passing without looking.
 
 **14. Tidy the whole slide.** With nothing selected, Tidy works on every top-level shape. The reader
 already walks `slide.Shapes` for z-order, and would read snapshots in the same walk. This is where a
@@ -570,6 +595,6 @@ which regenerates the deck there before clicking. Discard them, or regenerate wi
 and commit the new deck only when its slides have deliberately changed.
 
 Manual verification: run [`tools/New-SampleDeck.ps1`](../tools/New-SampleDeck.ps1), which writes a saved
-19-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
+20-slide deck to `sample\` and reopens it with a clean undo history. Each slide is
 captioned with what to try. The headline check is slide 2 — align left with **Measure = Shape frame**
 (what PowerPoint does, and the rotated shape lands wrong) against **Measure = Visual bounds** (flush).

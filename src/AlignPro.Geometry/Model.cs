@@ -51,7 +51,8 @@ namespace AlignPro.Geometry
             RectD? textBounds = null,
             bool isGroup = false,
             bool isPlaceholder = false,
-            string? name = null)
+            string? name = null,
+            bool isConnector = false)
         {
             Key = key;
             Frame = frame;
@@ -62,6 +63,7 @@ namespace AlignPro.Geometry
             IsGroup = isGroup;
             IsPlaceholder = isPlaceholder;
             Name = name;
+            IsConnector = isConnector;
         }
 
         public ShapeKey Key { get; }
@@ -93,6 +95,12 @@ namespace AlignPro.Geometry
         public bool IsGroup { get; }
 
         public bool IsPlaceholder { get; }
+
+        /// <summary>
+        /// True for a connector. Connectors re-route when the shapes they join move, so the verbs
+        /// that decide for themselves what to move - Tidy - leave them out entirely.
+        /// </summary>
+        public bool IsConnector { get; }
 
         /// <summary>Diagnostic only - never used for identity.</summary>
         public string? Name { get; }

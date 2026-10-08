@@ -130,22 +130,45 @@ function Invoke-RibbonButton {
 }
 
 <#
-    A modal dialog would block PowerPoint's UI thread and hang everything after it. None of the cases
-    below should raise one, so finding a dialog is itself a failure - but it is dismissed either way so
-    the rest of the run can continue.
+    A modal dialog would block PowerPoint's UI thread and hang everything after it, so every check
+    that might raise one calls this, and it is dismissed either way so the rest of the run continues.
+    Returns the dialog's title and message, or $null when there was none.
+
+    Two things about AlignPro's message boxes make this harder than it looks, and both once hung the
+    run. The box is not a direct child of PowerPoint's window but sits deeper, so it is searched for
+    among all descendants, by the standard dialog class. And its OK button reports itself to UI
+    Automation as a pane, not a button, and offers no Invoke - so it is found by class and name, and
+    when it cannot be invoked the dialog is brought forward and Enter pressed instead.
 #>
 function Get-BlockingDialog {
     param($Window)
-    $dialog = $Window.FindFirst($TS::Children,
-        (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, $CT::Window)))
+    Start-Sleep -Milliseconds 300
+    $dialog = $Window.FindFirst($TS::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition($A::ClassNameProperty, '#32770')))
     if (-not $dialog) { return $null }
 
-    $text = $dialog.Current.Name
+    $title = $dialog.Current.Name
+    $message = @()
+    $statics = $dialog.FindAll($TS::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition($A::ClassNameProperty, 'Static')))
+    foreach ($st in $statics) { if ($st.Current.Name) { $message += $st.Current.Name } }
+
     $ok = $dialog.FindFirst($TS::Descendants, (New-Object System.Windows.Automation.AndCondition(
-        (New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, $CT::Button)),
+        (New-Object System.Windows.Automation.PropertyCondition($A::ClassNameProperty, 'Button')),
         (New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, 'OK')))))
-    if ($ok) { $ok.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
-    $text
+    $invoke = $null
+    if ($ok -and $ok.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invoke)) {
+        $invoke.Invoke()
+    }
+    else {
+        $shell = New-Object -ComObject WScript.Shell
+        [void]$shell.AppActivate($title)
+        Start-Sleep -Milliseconds 300
+        $shell.SendKeys('{ENTER}')
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
+    Start-Sleep -Milliseconds 500
+    ($title + ': ' + ($message -join ' '))
 }
 
 <#
@@ -500,6 +523,39 @@ $along = $tiltItems | ForEach-Object {
 Add-Result 'Clicking Left inside a rotated group follows its edge' (@($along | Sort-Object -Unique).Count -eq 1) `
     ("along-group lefts {0}" -f ($along -join ', '))
 Send-NativeUndo -Window $window
+
+# Slide 20: Tidy, clicked. It always reports, so a dialog is expected here - and it must be Tidy's.
+$tidySlide = $presentation.Slides.Item(20)
+$cells = 1..9 | ForEach-Object { "Cell$_" }
+$steps = 1..4 | ForEach-Object { "Step$_" }
+[void]$api.SetBoundsModel('ShapeFrame')
+[void]$api.SetTidyTolerance('')
+$cell2Before = $tidySlide.Shapes.Item('Cell2').Left
+Select-Shapes -Slide 20 -Names ($cells + $steps + @('StagA', 'StagB', 'Link'))
+$clicked = Invoke-RibbonButton -Window $window -Pattern 'Tidy'
+$dialog = Get-BlockingDialog -Window $window
+Add-Result 'Clicking Tidy reports what it did' ($dialog -like 'AlignPro - Tidy: Tidied*') ("dialog: " + $dialog)
+
+function Get-TidyShape { param([string] $Name) $tidySlide.Shapes.Item($Name) }
+$columnsAligned = 0
+for ($c = 0; $c -lt 3; $c++) {
+    $lefts = @(); for ($r = 0; $r -lt 3; $r++) { $lefts += [Math]::Round((Get-TidyShape "Cell$($r * 3 + $c + 1)").Left, 2) }
+    if (@($lefts | Sort-Object -Unique).Count -eq 1) { $columnsAligned++ }
+}
+$rowsAligned = 0
+for ($r = 0; $r -lt 3; $r++) {
+    $tops = @(); for ($c = 0; $c -lt 3; $c++) { $tops += [Math]::Round((Get-TidyShape "Cell$($r * 3 + $c + 1)").Top, 2) }
+    if (@($tops | Sort-Object -Unique).Count -eq 1) { $rowsAligned++ }
+}
+$gaps = @(); for ($i = 1; $i -le 3; $i++) { $gaps += [Math]::Round((Get-TidyShape "Step$($i + 1)").Left - (Get-TidyShape "Step$i").Left - 50, 2) }
+$staggerKept = ([Math]::Abs((Get-TidyShape 'StagA').Left - 520) -le 0.01) -and ([Math]::Abs((Get-TidyShape 'StagB').Left - 526) -le 0.01)
+Add-Result 'Tidy squares the grid, evens the row, keeps the stagger' `
+    (($columnsAligned -eq 3) -and ($rowsAligned -eq 3) -and (@($gaps | Sort-Object -Unique).Count -eq 1) -and $staggerKept) `
+    ("{0}/3 columns, {1}/3 rows, row gaps {2}, stagger kept {3}" -f $columnsAligned, $rowsAligned, ($gaps -join '/'), $staggerKept)
+
+Send-NativeUndo -Window $window
+Add-Result 'Ctrl+Z undoes the whole tidy' ([Math]::Abs($tidySlide.Shapes.Item('Cell2').Left - $cell2Before) -le $tolerance) `
+    ("Cell2 left {0:F2}, was {1:F2}" -f $tidySlide.Shapes.Item('Cell2').Left, $cell2Before)
 
 # =================================================================================================
 Write-Host ''

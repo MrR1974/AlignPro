@@ -114,6 +114,45 @@ namespace AlignPro.Geometry
                 : DuplicateResult.Ok(copies, diagnostics.ToArray());
         }
 
+        /// <summary>
+        /// Tidies shapes inside a group turned by <paramref name="groupAngle"/> degrees, lining them
+        /// up and spacing them along the group's own axes. An angle of zero is solved directly.
+        /// </summary>
+        public static SolveResult SolveTidy(
+            TidyRequest request, IReadOnlyList<ShapeSnapshot> shapes, RectD? groupBounds, double groupAngle)
+        {
+            if (request is null) throw new ArgumentNullException(nameof(request));
+            if (shapes is null) throw new ArgumentNullException(nameof(shapes));
+
+            if (GeometryChange.SameAngle(groupAngle, 0)) return TidySolver.Solve(request, shapes);
+
+            if (!groupBounds.HasValue)
+            {
+                throw new ArgumentException("A rotated group needs its frame.", nameof(groupBounds));
+            }
+
+            if (request.BoundsModel == BoundsModel.TextBounds)
+            {
+                return SolveResult.Refused(
+                    "Inside a rotated group, PowerPoint does not report where the text sits along the group's edges. Use Measure = Shape frame or Visual bounds.");
+            }
+
+            var pivot = new PointD(groupBounds.Value.CentreX, groupBounds.Value.CentreY);
+            var turned = shapes.Select(s => ToGroup(s, pivot, groupAngle)).ToList();
+
+            var result = TidySolver.Solve(request, turned);
+            if (!result.Succeeded) return result;
+
+            var originals = shapes.ToDictionary(s => s.Key);
+            var changes = result.Changes
+                .Select(c => FromGroup(c, originals[c.Key], pivot, groupAngle))
+                .ToList();
+
+            return result.Notable
+                ? SolveResult.OkWithNotice(changes, result.Diagnostics.ToArray())
+                : SolveResult.Ok(changes, result.Diagnostics.ToArray());
+        }
+
         private static string? Refusal(AlignRequest request)
         {
             switch (request.Reference)
@@ -145,7 +184,8 @@ namespace AlignPro.Geometry
                 textBounds: null,
                 shape.IsGroup,
                 shape.IsPlaceholder,
-                shape.Name);
+                shape.Name,
+                shape.IsConnector);
         }
 
         /// <summary>A change solved along the group's axes, turned back into slide space.</summary>

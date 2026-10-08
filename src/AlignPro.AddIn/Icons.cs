@@ -63,6 +63,7 @@ namespace AlignPro.AddIn
                     "btnMatchBoth" => MatchBoth(16),
                     "tbResizeFromCentre" => ResizeFromCentre(16),
                     "btnGrid" => Grid(16),
+                    "btnTidy" => Tidy(16),
                     "btnOrderStack" => Stack(32, firstOnTop: true),
                     "btnOrderReverse" => Stack(32, firstOnTop: false),
                     "btnMatchRotation" => MatchRotation(16),
@@ -393,6 +394,28 @@ namespace AlignPro.AddIn
                     var y = 8f * u + (float)(5 * u * Math.Sin(angle));
                     FillTurnedSquare(g, accent, x, y, 3f * u, i * 60);
                 }
+            }
+
+            return bitmap;
+        }
+
+        /// <summary>
+        /// Four blocks sitting exactly on two crossing guides: shapes snapped into line. The guides are
+        /// the accent, because lining up is what the verb is about.
+        /// </summary>
+        private static Bitmap Tidy(int size)
+        {
+            var bitmap = Create(size, out var g, out var u);
+            using (g)
+            using (var ink = new SolidBrush(Ink))
+            using (var accent = new SolidBrush(Accent))
+            {
+                Fill(g, ink, u, 2, 2, 5, 5);
+                Fill(g, ink, u, 9, 2, 5, 5);
+                Fill(g, ink, u, 2, 9, 5, 5);
+                Fill(g, ink, u, 9, 9, 5, 5);
+                Fill(g, accent, u, 1, 7, 14, 1);
+                Fill(g, accent, u, 7, 1, 1, 14);
             }
 
             return bitmap;
