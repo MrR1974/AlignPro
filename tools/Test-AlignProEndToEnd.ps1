@@ -89,6 +89,9 @@ if (-not $addin.Connect) { throw 'AlignPro is registered but not connected.' }
 
 $api = $addin.Object
 if (-not $api) { throw 'AlignPro loaded but exposed no automation object (RequestComAddInAutomationService).' }
+# Settings are remembered between sessions, so start from the defaults rather than whatever was last
+# used by hand - every check below that leaves a setting alone assumes its default.
+[void]$api.ResetSettings()
 Write-Host ("Automation surface reached. " + $api.Describe()) -ForegroundColor DarkGray
 
 # --- fixtures ------------------------------------------------------------------------------------
@@ -970,6 +973,9 @@ try {
         ("view type {0}; said: {1}" -f $ppt.ActiveWindow.ViewType, $said)
 }
 finally { Close-Fixture -Fixture $f }
+
+# Do not leave this run's settings behind as the user's.
+[void]$api.ResetSettings()
 
 # =================================================================================================
 Write-Host ''

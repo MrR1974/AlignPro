@@ -219,13 +219,9 @@ for ($i = 1; $i -le $ppt.COMAddIns.Count; $i++) {
 if (-not $addIn -or -not $addIn.Connect) { throw 'AlignPro is not loaded in PowerPoint.' }
 $api = $addIn.Object
 
-# Settings persist across slides, so pin them rather than inheriting whatever was last used by hand.
-[void]$api.SetReference('SelectionBounds')
-[void]$api.SetBoundsModel('ShapeFrame')
-[void]$api.SetExactSpacing('')
-[void]$api.SetGridColumns('')
-[void]$api.SetSizeMargin('')
-[void]$api.SetSizeMarginMode('None')
+# Settings are remembered between sessions, so start from the defaults rather than inheriting
+# whatever was last used by hand.
+[void]$api.ResetSettings()
 
 $window = Get-PowerPointWindow
 Expand-PowerPointWindow -Window $window
@@ -572,6 +568,9 @@ for ($c = 0; $c -lt 3; $c++) {
 Add-Result 'Clicking Tidy with nothing selected tidies the slide' (($dialog -like '*whole slide*') -and ($columnsAligned -eq 3)) `
     ("{0}/3 columns; dialog: {1}" -f $columnsAligned, $dialog)
 Send-NativeUndo -Window $window
+
+# Do not leave this run's settings behind as the user's.
+[void]$api.ResetSettings()
 
 # =================================================================================================
 Write-Host ''

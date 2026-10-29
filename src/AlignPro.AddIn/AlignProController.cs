@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using AlignPro.Geometry;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
@@ -51,67 +52,271 @@ namespace AlignPro.AddIn
 
     /// <summary>
     /// Orchestrates one operation: read the selection, solve, apply. Holds the
-    /// settings the ribbon's dropdowns bind to.
+    /// settings the ribbon's dropdowns bind to, and remembers them between sessions.
     /// </summary>
     internal sealed class AlignProController
     {
         private readonly PowerPoint.Application _app;
 
-        public AlignProController(PowerPoint.Application app)
+        /// <summary>Null while the settings are being loaded or reset, so that does not write them back.</summary>
+        private SettingsStore? _store;
+
+        public AlignProController(PowerPoint.Application app) : this(app, new SettingsStore())
         {
-            _app = app ?? throw new ArgumentNullException(nameof(app));
         }
 
-        public ReferenceTarget Reference { get; set; } = ReferenceTarget.SelectionBounds;
+        /// <param name="store">Where settings are remembered, or null for a controller that only holds the defaults.</param>
+        private AlignProController(PowerPoint.Application app, SettingsStore? store)
+        {
+            _app = app ?? throw new ArgumentNullException(nameof(app));
+            if (store == null) return;
 
-        public BoundsModel Bounds { get; set; } = BoundsModel.ShapeFrame;
+            Load(store.ReadAll());
+            _store = store;
+        }
 
-        public DistributeMode DistributeMode { get; set; } = DistributeMode.Gap;
+        // -- settings -------------------------------------------------------------------------------
+        // Each property's name is also the name it is saved under, so renaming one forgets what users
+        // had chosen for it.
+
+        private ReferenceTarget _reference = ReferenceTarget.SelectionBounds;
+        public ReferenceTarget Reference { get => _reference; set => Remember(ref _reference, value); }
+
+        private BoundsModel _bounds = BoundsModel.ShapeFrame;
+        public BoundsModel Bounds { get => _bounds; set => Remember(ref _bounds, value); }
+
+        private DistributeMode _distributeMode = DistributeMode.Gap;
+        public DistributeMode DistributeMode { get => _distributeMode; set => Remember(ref _distributeMode, value); }
+
+        private double? _exactSpacing;
 
         /// <summary>Null means "even out whatever space is already there".</summary>
-        public double? ExactSpacing { get; set; }
+        public double? ExactSpacing { get => _exactSpacing; set => Remember(ref _exactSpacing, value); }
+
+        private double _margin = 36;
 
         /// <summary>Inset for the slide-margins reference, in points.</summary>
-        public double Margin { get; set; } = 36;
+        public double Margin { get => _margin; set => Remember(ref _margin, value); }
 
-        public ResizeOrigin ResizeOrigin { get; set; } = ResizeOrigin.TopLeft;
+        private ResizeOrigin _resizeOrigin = ResizeOrigin.TopLeft;
+        public ResizeOrigin ResizeOrigin { get => _resizeOrigin; set => Remember(ref _resizeOrigin, value); }
+
+        private double _sizeMargin;
 
         /// <summary>
         /// The match-size margin, measured per side in points. Always zero or more: which way it
         /// goes is <see cref="SizeDirection"/>'s job, not the sign's.
         /// </summary>
-        public double SizeMargin { get; set; }
+        public double SizeMargin { get => _sizeMargin; set => Remember(ref _sizeMargin, value); }
+
+        private SizeDirection _sizeDirection = SizeDirection.Shrink;
 
         /// <summary>Whether the margin shrinks the shapes inside the anchor or grows them past it.</summary>
-        public SizeDirection SizeDirection { get; set; } = SizeDirection.Shrink;
+        public SizeDirection SizeDirection { get => _sizeDirection; set => Remember(ref _sizeDirection, value); }
+
+        private SizeMarginMode _sizeMarginMode = SizeMarginMode.None;
 
         /// <summary>Whether the match-size margin applies, and whether it cascades.</summary>
-        public SizeMarginMode SizeMarginMode { get; set; } = SizeMarginMode.None;
+        public SizeMarginMode SizeMarginMode { get => _sizeMarginMode; set => Remember(ref _sizeMarginMode, value); }
+
+        private int? _gridColumns;
 
         /// <summary>Null means a near-square grid.</summary>
-        public int? GridColumns { get; set; }
+        public int? GridColumns { get => _gridColumns; set => Remember(ref _gridColumns, value); }
+
+        private double _duplicateX = 20;
 
         /// <summary>How far each duplicate step moves right, in points.</summary>
-        public double DuplicateX { get; set; } = 20;
+        public double DuplicateX { get => _duplicateX; set => Remember(ref _duplicateX, value); }
+
+        private double _duplicateY = 20;
 
         /// <summary>How far each duplicate step moves down, in points.</summary>
-        public double DuplicateY { get; set; } = 20;
+        public double DuplicateY { get => _duplicateY; set => Remember(ref _duplicateY, value); }
+
+        private double _duplicateAngle;
 
         /// <summary>How far each duplicate step turns, in degrees clockwise.</summary>
-        public double DuplicateAngle { get; set; }
+        public double DuplicateAngle { get => _duplicateAngle; set => Remember(ref _duplicateAngle, value); }
 
-        public int DuplicateCopies { get; set; } = 1;
+        private int _duplicateCopies = 1;
+        public int DuplicateCopies { get => _duplicateCopies; set => Remember(ref _duplicateCopies, value); }
 
-        public DuplicatePivot DuplicatePivot { get; set; } = DuplicatePivot.OwnCentre;
+        private DuplicatePivot _duplicatePivot = DuplicatePivot.OwnCentre;
+        public DuplicatePivot DuplicatePivot { get => _duplicatePivot; set => Remember(ref _duplicatePivot, value); }
+
+        private bool _rotateShapes = true;
 
         /// <summary>
         /// Shared by Duplicate and Distribute along curve: turn shapes with the step or the curve, or
         /// leave their angle alone.
         /// </summary>
-        public bool RotateShapes { get; set; } = true;
+        public bool RotateShapes { get => _rotateShapes; set => Remember(ref _rotateShapes, value); }
+
+        private double _tidyTolerance = TidyRequest.DefaultTolerance;
 
         /// <summary>How close, in points, shapes must be for Tidy to treat them as meant to line up.</summary>
-        public double TidyTolerance { get; set; } = TidyRequest.DefaultTolerance;
+        public double TidyTolerance { get => _tidyTolerance; set => Remember(ref _tidyTolerance, value); }
+
+        /// <summary>Puts every setting back to its default and forgets what was saved.</summary>
+        public void ResetSettings()
+        {
+            var store = _store;
+            _store = null;
+            try
+            {
+                CopySettingsFrom(new AlignProController(_app, store: null));
+                store?.Clear();
+            }
+            finally
+            {
+                _store = store;
+            }
+        }
+
+        private void CopySettingsFrom(AlignProController other)
+        {
+            Reference = other.Reference;
+            Bounds = other.Bounds;
+            DistributeMode = other.DistributeMode;
+            ExactSpacing = other.ExactSpacing;
+            Margin = other.Margin;
+            ResizeOrigin = other.ResizeOrigin;
+            SizeMargin = other.SizeMargin;
+            SizeDirection = other.SizeDirection;
+            SizeMarginMode = other.SizeMarginMode;
+            GridColumns = other.GridColumns;
+            DuplicateX = other.DuplicateX;
+            DuplicateY = other.DuplicateY;
+            DuplicateAngle = other.DuplicateAngle;
+            DuplicateCopies = other.DuplicateCopies;
+            DuplicatePivot = other.DuplicatePivot;
+            RotateShapes = other.RotateShapes;
+            TidyTolerance = other.TidyTolerance;
+        }
+
+        private void Remember<T>(ref T field, T value, [CallerMemberName] string name = "")
+        {
+            field = value;
+            _store?.Write(name, Stored(value));
+        }
+
+        /// <summary>
+        /// A setting as it is saved: invariant culture, so it reads back the same after a change of
+        /// locale, and choices by name, so reordering an enum cannot remap them. Blank is "none".
+        /// </summary>
+        private static string Stored(object? value) => value switch
+        {
+            null => string.Empty,
+            double number => number.ToString("R", CultureInfo.InvariantCulture),
+            int whole => whole.ToString(CultureInfo.InvariantCulture),
+            _ => value.ToString()
+        };
+
+        /// <summary>
+        /// Takes what was saved through the same checks a typed value gets, so a value saved by an
+        /// older version, or edited by hand, that is no longer acceptable leaves the default in place.
+        /// Anything missing or unreadable is the default too.
+        /// </summary>
+        private void Load(IReadOnlyDictionary<string, string> saved)
+        {
+            LoadChoice<ReferenceTarget>(saved, nameof(Reference), v => Reference = v);
+            LoadChoice<BoundsModel>(saved, nameof(Bounds), v => Bounds = v);
+            LoadChoice<DistributeMode>(saved, nameof(DistributeMode), v => DistributeMode = v);
+            LoadChoice<ResizeOrigin>(saved, nameof(ResizeOrigin), v => ResizeOrigin = v);
+            LoadChoice<SizeDirection>(saved, nameof(SizeDirection), v => SizeDirection = v);
+            LoadChoice<SizeMarginMode>(saved, nameof(SizeMarginMode), v => SizeMarginMode = v);
+            LoadChoice<DuplicatePivot>(saved, nameof(DuplicatePivot), v => DuplicatePivot = v);
+
+            LoadNumber(saved, nameof(ExactSpacing), v => Taken(ExactSpacing = v), blankAllowed: true);
+            LoadNumber(saved, nameof(Margin), v => SetMargin(v!.Value));
+            LoadNumber(saved, nameof(SizeMargin), v => SetSizeMargin(v!.Value));
+            LoadNumber(saved, nameof(TidyTolerance), v => SetTidyTolerance(v!.Value));
+            LoadNumber(saved, nameof(DuplicateX), v => Taken(DuplicateX = v!.Value));
+            LoadNumber(saved, nameof(DuplicateY), v => Taken(DuplicateY = v!.Value));
+            LoadNumber(saved, nameof(DuplicateAngle), v => Taken(DuplicateAngle = v!.Value));
+
+            LoadWhole(saved, nameof(GridColumns), v => SetGridColumns(v), blankAllowed: true);
+            LoadWhole(saved, nameof(DuplicateCopies), v => SetDuplicateCopies(v!.Value));
+
+            if (saved.TryGetValue(nameof(RotateShapes), out var rotate))
+            {
+                if (bool.TryParse(rotate, out var parsed)) RotateShapes = parsed;
+                else Diagnostics.Log("Ignored saved RotateShapes '" + rotate + "'.");
+            }
+        }
+
+        /// <summary>For a setting any number suits, so there is nothing to refuse.</summary>
+        private static string? Taken<T>(T _) => null;
+
+        private static void LoadChoice<T>(IReadOnlyDictionary<string, string> saved, string name, Action<T> apply)
+            where T : struct, Enum
+        {
+            if (!saved.TryGetValue(name, out var text)) return;
+
+            // IsDefined as well as TryParse, which would happily take "7" for an enum with three values.
+            if (Enum.TryParse(text, ignoreCase: false, out T value) && Enum.IsDefined(typeof(T), value)) apply(value);
+            else Diagnostics.Log("Ignored saved " + name + " '" + text + "'.");
+        }
+
+        private static void LoadNumber(
+            IReadOnlyDictionary<string, string> saved, string name, Func<double?, string?> apply, bool blankAllowed = false)
+        {
+            if (!saved.TryGetValue(name, out var text)) return;
+
+            double? value = null;
+            if (text.Length > 0)
+            {
+                // Invariant only. TryParsePoints tries the user's locale first, which on a German machine
+                // reads the saved "1.5" as fifteen.
+                if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) &&
+                    !double.IsNaN(parsed) && !double.IsInfinity(parsed))
+                {
+                    value = parsed;
+                }
+                else
+                {
+                    Diagnostics.Log("Ignored saved " + name + " '" + text + "'.");
+                    return;
+                }
+            }
+            else if (!blankAllowed)
+            {
+                Diagnostics.Log("Ignored saved " + name + ", which was blank.");
+                return;
+            }
+
+            var refused = apply(value);
+            if (refused != null) Diagnostics.Log("Ignored saved " + name + " '" + text + "': " + refused);
+        }
+
+        private static void LoadWhole(
+            IReadOnlyDictionary<string, string> saved, string name, Func<int?, string?> apply, bool blankAllowed = false)
+        {
+            if (!saved.TryGetValue(name, out var text)) return;
+
+            int? value = null;
+            if (text.Length > 0)
+            {
+                if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                {
+                    value = parsed;
+                }
+                else
+                {
+                    Diagnostics.Log("Ignored saved " + name + " '" + text + "'.");
+                    return;
+                }
+            }
+            else if (!blankAllowed)
+            {
+                Diagnostics.Log("Ignored saved " + name + ", which was blank.");
+                return;
+            }
+
+            var refused = apply(value);
+            if (refused != null) Diagnostics.Log("Ignored saved " + name + " '" + text + "': " + refused);
+        }
 
         // -- settings typed as text -----------------------------------------------------------------
         // The ribbon's boxes and the automation surface both set these from text, through here, so the
@@ -150,6 +355,12 @@ namespace AlignPro.AddIn
             }
 
             if (!TryParsePoints(text, out var value)) return $"'{text}' is not a margin in points.";
+            return SetSizeMargin(value);
+        }
+
+        /// <inheritdoc cref="SetSizeMargin(string)"/>
+        public string? SetSizeMargin(double value)
+        {
             if (value < 0)
             {
                 return string.Format(CultureInfo.CurrentCulture,
@@ -164,14 +375,23 @@ namespace AlignPro.AddIn
         /// <summary>The slide-margins inset, in points: zero or more.</summary>
         public string? SetMargin(string text)
         {
-            if (!TryParsePoints(text, out var value) || value < 0)
-            {
-                return $"'{text}' is not a margin in points. It must be zero or more.";
-            }
+            if (!TryParsePoints(text, out var value)) return MarginRefusal(text);
+            return SetMargin(value, text);
+        }
+
+        /// <inheritdoc cref="SetMargin(string)"/>
+        public string? SetMargin(double value) => SetMargin(value, value.ToString("0.##", CultureInfo.CurrentCulture));
+
+        private string? SetMargin(double value, string asTyped)
+        {
+            if (value < 0) return MarginRefusal(asTyped);
 
             Margin = value;
             return null;
         }
+
+        private static string MarginRefusal(string asTyped) =>
+            $"'{asTyped}' is not a margin in points. It must be zero or more.";
 
         /// <summary>Tidy's tolerance in points, within the range Tidy accepts; blank restores the default.</summary>
         public string? SetTidyTolerance(string text)
@@ -182,16 +402,24 @@ namespace AlignPro.AddIn
                 return null;
             }
 
-            if (!TryParsePoints(text, out var value) || value < TidyRequest.MinTolerance || value > TidyRequest.MaxTolerance)
-            {
-                return string.Format(CultureInfo.CurrentCulture,
-                    "'{0}' is not a tolerance Tidy can use. Enter a number of points from {1} to {2}.",
-                    text, TidyRequest.MinTolerance, TidyRequest.MaxTolerance);
-            }
+            if (!TryParsePoints(text, out var value)) return ToleranceRefusal(text);
+            return SetTidyTolerance(value, text);
+        }
+
+        /// <inheritdoc cref="SetTidyTolerance(string)"/>
+        public string? SetTidyTolerance(double value) => SetTidyTolerance(value, value.ToString("0.##", CultureInfo.CurrentCulture));
+
+        private string? SetTidyTolerance(double value, string asTyped)
+        {
+            if (value < TidyRequest.MinTolerance || value > TidyRequest.MaxTolerance) return ToleranceRefusal(asTyped);
 
             TidyTolerance = value;
             return null;
         }
+
+        private static string ToleranceRefusal(string asTyped) => string.Format(CultureInfo.CurrentCulture,
+            "'{0}' is not a tolerance Tidy can use. Enter a number of points from {1} to {2}.",
+            asTyped, TidyRequest.MinTolerance, TidyRequest.MaxTolerance);
 
         /// <summary>Grid columns, one or more; blank means a near-square grid.</summary>
         public string? SetGridColumns(string text)
@@ -202,14 +430,25 @@ namespace AlignPro.AddIn
                 return null;
             }
 
-            if (!TryParseWhole(text, out var columns) || columns < 1)
-            {
-                return $"'{text}' is not a column count. Leave it blank for a near-square grid.";
-            }
+            if (!TryParseWhole(text, out var columns)) return ColumnsRefusal(text);
+            return SetGridColumns(columns, text);
+        }
+
+        /// <inheritdoc cref="SetGridColumns(string)"/>
+        public string? SetGridColumns(int? columns) => columns == null
+            ? SetGridColumns(string.Empty)
+            : SetGridColumns(columns.Value, columns.Value.ToString(CultureInfo.CurrentCulture));
+
+        private string? SetGridColumns(int columns, string asTyped)
+        {
+            if (columns < 1) return ColumnsRefusal(asTyped);
 
             GridColumns = columns;
             return null;
         }
+
+        private static string ColumnsRefusal(string asTyped) =>
+            $"'{asTyped}' is not a column count. Leave it blank for a near-square grid.";
 
         /// <summary>One number of the duplicate step - X, Y or Angle. Blank is zero, which is inert in a step.</summary>
         public string? SetDuplicateStep(DuplicateStep part, string text)

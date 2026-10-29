@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Undoes exactly what Install-AlignPro.ps1 did: the registry key PowerPoint loads the add-in from,
-    the trust entry, the Add/Remove Programs listing, and the installed files. Nothing else on the
-    machine was touched, so nothing else needs cleaning up.
+    the trust entry, the Add/Remove Programs listing, and the installed files. It also forgets the
+    ribbon settings the add-in remembered between sessions. Nothing else on the machine was touched,
+    so nothing else needs cleaning up.
 
     Your presentations are never touched.
 
@@ -41,6 +42,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $registryKey = 'HKCU:\Software\Microsoft\Office\PowerPoint\Addins\AlignPro.AddIn'
+$settingsKey = 'HKCU:\Software\AlignPro'
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AlignPro'
 
 function Finish {
@@ -97,6 +99,12 @@ Write-Host $(if ($revoked -gt 0) { "  revoked trust ($revoked inclusion-list ent
 if (Test-Path $uninstallKey) {
     Remove-Item -Path $uninstallKey -Recurse -Force
     Write-Host '  delisted from Add/Remove Programs'
+}
+
+# The settings the add-in remembered between sessions, written as they changed rather than installed.
+if (Test-Path $settingsKey) {
+    Remove-Item -Path $settingsKey -Recurse -Force
+    Write-Host '  forgot saved settings'
 }
 
 if ($KeepFiles) {

@@ -59,7 +59,9 @@ Read this bit — installing an Office add-in involves a trust decision, and you
 
 It copies the add-in, the sample deck and its own uninstaller to `%LOCALAPPDATA%\AlignPro`, and writes
 a few registry values under `HKEY_CURRENT_USER`: one telling PowerPoint where to find the add-in, and
-one listing AlignPro in Add/Remove Programs so you can uninstall it like anything else.
+one listing AlignPro in Add/Remove Programs so you can uninstall it like anything else. Once you use
+it, the add-in also remembers your ribbon settings between sessions, under
+`HKEY_CURRENT_USER\Software\AlignPro`. Upgrading keeps them; uninstalling removes them.
 
 Then it **grants trust**, because it has to. VSTO will not load an add-in unless the machine trusts the
 certificate that signed its manifest — without it, PowerPoint sets `LoadBehavior` to 2 and the add-in

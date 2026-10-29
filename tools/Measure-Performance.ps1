@@ -72,9 +72,8 @@ try {
     }
     Write-Host ("Slide built: {0} top-level shapes." -f $slide.Shapes.Count) -ForegroundColor DarkGray
 
-    [void]$api.SetReference('SelectionBounds')
-    [void]$api.SetBoundsModel('ShapeFrame')
-    [void]$api.SetTidyTolerance('')
+    # Settings are remembered between sessions; time the defaults, not whatever was last used by hand.
+    [void]$api.ResetSettings()
 
     function Select-Names { param([string[]] $Names)
         $first = $true
@@ -109,6 +108,7 @@ try {
     $results | Format-Table -AutoSize -Wrap
 }
 finally {
+    [void]$api.ResetSettings()
     $pres.Saved = $msoTrue
     $pres.Close()
     $ppt.Quit()

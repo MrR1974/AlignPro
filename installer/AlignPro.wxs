@@ -32,8 +32,15 @@
 
     <SummaryInformation Description="Align, distribute, size and tidy shapes in PowerPoint" />
 
-    <!-- Installing a newer version replaces the old one rather than sitting alongside it. -->
-    <MajorUpgrade DowngradeErrorMessage="A newer version of AlignPro is already installed." />
+    <!--
+      Installing a newer version replaces the old one rather than sitting alongside it.
+
+      afterInstallExecute installs the new version before removing the old, so a component both
+      versions share is never uninstalled in between. That matters for PowerPointRegistration, which
+      wipes the user's saved settings when it is removed: removing the old version first, as the
+      default schedule does, would forget them on every upgrade rather than only on uninstall.
+    -->
+    <MajorUpgrade Schedule="afterInstallExecute" DowngradeErrorMessage="A newer version of AlignPro is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <!--
@@ -89,6 +96,14 @@
           <!-- |vstolocal loads the add-in from this folder rather than a ClickOnce cache. -->
           <RegistryValue Name="Manifest" Type="string" Value="[INSTALLFOLDER]AlignPro.AddIn.vsto|vstolocal" KeyPath="yes" />
         </RegistryKey>
+
+        <!--
+          The settings the add-in remembers between sessions. Not installed, only written as they
+          change, but forgotten on uninstall so nothing of AlignPro outlives it. Kept in this
+          component, whose GUID never changes, so that an upgrade - see MajorUpgrade - does not remove
+          it.
+        -->
+        <RemoveRegistryKey Root="HKCU" Key="Software\AlignPro" Action="removeOnUninstall" />
       </Component>
 
       <!--

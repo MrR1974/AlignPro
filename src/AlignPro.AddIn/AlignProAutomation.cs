@@ -75,6 +75,17 @@ namespace AlignPro.AddIn
             Controller.TidyTolerance.ToString(CultureInfo.InvariantCulture));
 
         /// <summary>
+        /// Puts every setting back to its default and forgets the saved ones. Settings are remembered
+        /// between sessions, so a harness calls this first to start from known values - and last, so it
+        /// does not leave its own choices behind as the user's.
+        /// </summary>
+        public string ResetSettings()
+        {
+            Controller.ResetSettings();
+            return string.Empty;
+        }
+
+        /// <summary>
         /// Runs a verb against the current selection. Verb names match <see cref="AlignVerb"/>, e.g.
         /// "AlignLeft", "DistributeH", "MatchBoth", "GridArrange".
         /// </summary>
